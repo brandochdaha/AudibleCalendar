@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en-US">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#111827" />
+    <link rel="icon" type="image/png" href="/assets/icon.png" />
+    <title>AudibleCalendar</title>
+    <link rel="stylesheet" href="/static/app.css?v=20260923-3" />
+  </head>
+  <body>
+    <header class="topbar">
+      <form id="search-form" class="top-search">
+        <input id="search-input" class="top-search-input" type="search" placeholder="Search Audible catalog" autocomplete="off" required />
+        <select id="search-kind" aria-label="Search type">
+          <option value="author">Author</option>
+          <option value="series">Series</option>
+          <option value="book">Individual book</option>
+        </select>
+        <button class="button search-submit" type="submit">Find</button>
+      </form>
+      <div class="header-actions">
+        <button id="author-reviews-button" class="button button-secondary" type="button" hidden>Review author matches</button>
+        <div id="header-sync-summary" class="header-sync-summary" aria-live="polite" hidden>
+          <span id="header-last-sync"></span>
+          <span id="header-next-sync"></span>
+        </div>
+        <button id="settings-button" class="icon-button settings-button" type="button" aria-label="Settings" title="Settings"><span class="settings-icon" aria-hidden="true">⚙</span></button>
+      </div>
+    </header>
+
+    <div id="search-results-panel" class="modal-backdrop" hidden>
+      <section class="modal search-modal" role="dialog" aria-modal="true" aria-labelledby="search-modal-title">
+        <button id="search-results-close" class="modal-close" type="button" aria-label="Close search results"><span aria-hidden="true">×</span></button>
+        <div class="search-modal-heading">
+          <p class="eyebrow">SEARCH</p>
+          <h2 id="search-modal-title">Catalog results</h2>
+        </div>
+        <div class="search-results-summary">
+          <div id="search-message" class="muted" role="status" aria-live="polite"></div>
+          <div id="manual-author-merge-controls" hidden></div>
+        </div>
+        <div id="search-results" class="result-list" aria-live="polite"></div>
+      </section>
+    </div>
+
+    <main class="app-shell">
+      <aside class="sidebar">
+        <section class="panel upcoming-panel">
+          <div class="panel-heading inline-heading">
+            <div>
+              <h2 id="upcoming-title">Next</h2>
+            </div>
+            <button id="upcoming-mode-toggle" class="count-pill count-toggle" type="button" aria-label="Show last releases" aria-pressed="false" title="Show last releases"><img class="upcoming-mode-icon" src="/assets/swap.svg" alt="" aria-hidden="true" /></button>
+          </div>
+          <div id="upcoming-list" class="upcoming-list"></div>
+        </section>
+      </aside>
+
+      <section class="calendar-column">
+        <section class="panel calendar-panel">
+          <div class="release-tabs" role="tablist" aria-label="Release views">
+            <button class="release-tab is-active" type="button" role="tab" aria-selected="true" tabindex="0" data-release-mode="calendar">Calendar</button>
+            <button class="release-tab" type="button" role="tab" aria-selected="false" tabindex="-1" data-release-mode="watchlist">Watchlist</button>
+            <button class="release-tab" type="button" role="tab" aria-selected="false" tabindex="-1" data-release-mode="category">Category</button>
+            <div class="release-tab-tools">
+              <button id="sync-button" class="icon-button sync-button" type="button" aria-label="Sync" title="Sync"><span class="sync-icon" aria-hidden="true">↻</span></button>
+              <button id="history-toggle" class="button button-secondary history-toggle" type="button" aria-pressed="false" title="Show previous releases">History</button>
+              <div class="view-toggle" role="group" aria-label="Calendar display">
+                <button class="view-toggle-button is-active" type="button" data-display-mode="calendar">Calendar</button>
+                <button class="view-toggle-button" type="button" data-display-mode="list">List</button>
+              </div>
+            </div>
+            <div id="release-scope-toggle" class="view-toggle release-scope-toggle" role="group" aria-label="Release scope">
+              <button class="view-toggle-button" type="button" data-release-scope="followed">All followed</button>
+              <button class="view-toggle-button is-active" type="button" data-release-scope="favourites">Favorites</button>
+            </div>
+          </div>
+          <div class="calendar-toolbar">
+            <div>
+              <h2 id="calendar-title">Upcoming releases</h2>
+            </div>
+            <div class="calendar-controls">
+              <button id="previous-month" class="icon-button" type="button" aria-label="Previous month">‹</button>
+              <button id="today-button" class="button button-secondary" type="button">Today</button>
+              <button id="next-month" class="icon-button" type="button" aria-label="Next month">›</button>
+            </div>
+            <button id="category-export" class="button button-secondary" type="button" hidden>Export as CSV</button>
+          </div>
+          <div id="category-overview-controls" class="category-overview-controls" hidden>
+            <label>
+              <span>Audible category</span>
+              <select id="category-select"></select>
+            </label>
+            <label class="days-input">
+              <span>Next days</span>
+              <input id="category-days" type="number" min="1" max="3650" step="1" value="" />
+            </label>
+            <div class="category-refresh-control">
+              <span id="category-last-checked" class="category-last-checked" hidden></span>
+              <button id="category-refresh" class="button button-secondary" type="button">Refresh from Audible</button>
+            </div>
+          </div>
+          <div id="calendar" class="calendar" aria-live="polite"></div>
+          <div id="calendar-list" class="calendar-list" aria-live="polite" hidden></div>
+          <section id="watchlist-view" class="watchlist-view" hidden>
+            <div id="watch-tabs" class="watch-tabs" role="tablist" aria-label="Followed items">
+              <button id="watch-tab-authors" class="watch-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="watchlist" tabindex="0" data-watch-tab="authors">Authors <span id="watch-count-authors">0</span></button>
+              <button id="watch-tab-series" class="watch-tab" type="button" role="tab" aria-selected="false" aria-controls="watchlist" tabindex="-1" data-watch-tab="series">Series <span id="watch-count-series">0</span></button>
+              <button id="watch-tab-books" class="watch-tab" type="button" role="tab" aria-selected="false" aria-controls="watchlist" tabindex="-1" data-watch-tab="books">Books <span id="watch-count-books">0</span></button>
+            </div>
+            <div id="watchlist" class="watchlist" role="tabpanel" aria-live="polite"></div>
+          </section>
+          <p id="calendar-message" class="calendar-message" role="status" aria-live="polite" hidden></p>
+        </section>
+      </section>
+    </main>
+
+    <div id="settings-modal" class="modal-backdrop" hidden>
+      <section id="settings-page" class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+        <button id="settings-close" class="modal-close" type="button" aria-label="Close settings"><span aria-hidden="true">×</span></button>
+        <div class="settings-heading">
+          <div>
+            <h2 id="settings-modal-title">Application Settings</h2>
+          </div>
+        </div>
+        <form id="settings-form" class="settings-form">
+          <div id="settings-tabs" class="settings-tabs" role="tablist" aria-label="Settings sections">
+            <button id="settings-tab-catalogue" class="settings-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-catalogue" data-settings-tab="catalogue" tabindex="0">Catalog</button>
+            <button id="settings-tab-authors" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-authors" data-settings-tab="authors" tabindex="-1">Authors</button>
+            <button id="settings-tab-app" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-app" data-settings-tab="app" tabindex="-1">App</button>
+            <button id="settings-tab-category" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-category" data-settings-tab="category" tabindex="-1">Category</button>
+            <button id="settings-tab-sync" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-sync" data-settings-tab="sync" tabindex="-1">Sync</button>
+            <button id="settings-tab-users" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-users" data-settings-tab="users" tabindex="-1">Users</button>
+            <button id="settings-tab-database" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-database" data-settings-tab="database" tabindex="-1">Database</button>
+            <button id="settings-tab-cache" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-cache" data-settings-tab="cache" tabindex="-1">Cache</button>
+          </div>
+
+          <section id="settings-panel-catalogue" class="settings-section" role="tabpanel" aria-labelledby="settings-tab-catalogue" data-settings-panel="catalogue">
+            <div class="settings-section-heading">
+              <h3>Region and language</h3>
+            </div>
+            <div class="settings-grid">
+              <label>
+                <span>Audible region</span>
+                <select id="setting-region" name="region"></select>
+                <small>Choose the marketplace you use. Each region has a separate library; follows do not transfer.</small>
+              </label>
+              <label>
+                <span>Date display</span>
+                <select id="setting-date-display" name="date_display"></select>
+                <small>Controls date formatting throughout calendars, lists and details without changing the Audible marketplace.</small>
+              </label>
+              <label>
+                <span>Time zone</span>
+                <select id="setting-time-zone" name="time_zone"></select>
+                <small>Sets the local day used for the calendar and the times shown for sync activity.</small>
+              </label>
+              <label class="settings-checkbox">
+                <span>English-only releases</span>
+                <span class="checkbox-row"><input id="setting-english-only" name="english_only" type="checkbox" /> <span>Exclude known non-English releases</span></span>
+                <small>Unknown-language releases are retained because the source did not provide enough information to classify them.</small>
+              </label>
+              <label class="settings-checkbox">
+                <span>Audnexus enrichment</span>
+                <span class="checkbox-row"><input id="setting-audnexus" name="audnexus_enabled" type="checkbox" /> <span>Use Audnexus when it adds metadata</span></span>
+                <small>Use Audnexus for individual-book metadata during sync; Audible remains the discovery source for authors and series.</small>
+              </label>
+            </div>
+          </section>
+
+          <section id="settings-panel-authors" class="settings-section" role="tabpanel" aria-labelledby="settings-tab-authors" data-settings-panel="authors" hidden>
+            <div class="settings-section-heading">
+              <h3>Author identities</h3>
+            </div>
+            <div class="settings-grid author-merge-settings">
+              <label>
+                <span>Minimum shared series for merge suggestions</span>
+                <input id="setting-author-merge-min-shared-series" name="author_merge_min_shared_series" type="number" min="1" max="100" step="1" inputmode="numeric" required />
+                <small>Suggest authors for merging when they share at least this many series. Existing merge and separation decisions are unaffected.</small>
+              </label>
+            </div>
+            <div class="settings-section-heading author-management-heading">
+              <div>
+                <h3>Author merge management</h3>
+                <p class="settings-sync-status">Review identities that may belong together and manage merges already made. Decisions apply throughout the app.</p>
+              </div>
+              <button id="author-management-refresh" class="button button-secondary" type="button">Refresh expanded</button>
+            </div>
+            <div id="author-management-content" class="author-management-content" aria-live="polite">Expand a category to load its authors.</div>
+            <p id="author-management-message" class="settings-message" role="status" aria-live="polite"></p>
+          </section>
+
+          <section id="settings-panel-app" class="settings-section" role="tabpanel" aria-labelledby="settings-tab-app" data-settings-panel="app" hidden>
+            <div class="settings-section-heading">
+              <h3>Application behavior</h3>
+            </div>
+            <div class="settings-grid">
+              <label>
+                <span>Default release view</span>
+                <select id="setting-default-release-scope" name="default_release_scope">
+                  <option value="favourites">Favorites</option>
+                  <option value="followed">All followed</option>
+                </select>
+                <small>Used when no Calendar view is saved in this browser. Your History, Calendar/List and All followed/Favorites selections are remembered per account and take precedence.</small>
+              </label>
+              <label class="settings-checkbox">
+                <span>Watchlist chips</span>
+                <span class="checkbox-row"><input id="setting-watchlist-chips-always" name="watchlist_chips_always_visible" type="checkbox" /> <span>Always show author, series and book chips</span></span>
+                <small>When off, relationship chips appear only while hovering over or focusing a watchlist card.</small>
+              </label>
+              <label class="settings-checkbox">
+                <span>Header sync summary</span>
+                <span class="checkbox-row"><input id="setting-header-sync-summary" name="header_sync_summary_visible" type="checkbox" /> <span>Show Last and Next beside Settings</span></span>
+                <small>Displays the compact sync schedule in the header; detailed sync metrics remain in Settings.</small>
+              </label>
+              <label class="settings-checkbox">
+                <span>Header sync dates</span>
+                <span class="checkbox-row"><input id="setting-header-sync-dates" name="header_sync_dates_visible" type="checkbox" /> <span>Show a date or day beside each sync time</span></span>
+                <small>Applies when Header sync summary is enabled. When off, only times are shown.</small>
+              </label>
+              <label>
+                <span>Header sync date format</span>
+                <select id="setting-header-sync-date-style" name="header_sync_date_style">
+                  <option value="relative">Relative day (Today, Tomorrow, Thu)</option>
+                  <option value="short">Short date (18/9 or 9/18)</option>
+                </select>
+                <small>Relative days use Yesterday, Today, Tomorrow or a weekday within six days; other dates use short dates. Date order and times follow your date format and time zone settings.</small>
+              </label>
+              <label class="settings-checkbox">
+                <span>Close settings on Save</span>
+                <span class="checkbox-row"><input id="setting-close-settings-on-save" name="close_settings_on_save" type="checkbox" /> <span>Close this window after a successful save</span></span>
+                <small>When off, the settings window stays open so you can continue reviewing or changing settings.</small>
+              </label>
+            </div>
+          </section>
+
+          <section id="settings-panel-category" class="settings-section" role="tabpanel" aria-labelledby="settings-tab-category" data-settings-panel="category" hidden>
+            <div class="settings-section-heading">
+              <h3>What the category view opens with</h3>
+            </div>
+            <div class="settings-grid">
+              <label>
+                <span>Default category</span>
+                <select id="setting-default-category" name="default_category_id"></select>
+                <small>This changes the initial selection only; category results remain manually refreshed and separately cached.</small>
+              </label>
+              <label>
+                <span>Default date window</span>
+                <select id="setting-default-category-window" name="default_category_window">
+                  <option value="month_remaining">Rest of the current month</option>
+                  <option value="fixed">Fixed number of days</option>
+                </select>
+                <small>Choose whether the default window changes with the calendar or always uses a fixed length.</small>
+              </label>
+              <label id="setting-default-category-days-label" class="settings-dependent-setting">
+                <span>Fixed window <em>(days)</em></span>
+                <input id="setting-default-category-days" name="default_category_days" type="number" min="1" max="3650" step="1" required />
+                <small>Used only when the default date window is set to a fixed number of days.</small>
+              </label>
+            </div>
+          </section>
+
+          <section id="settings-panel-sync" class="settings-section" role="tabpanel" aria-labelledby="settings-tab-sync" data-settings-panel="sync" hidden>
+            <div class="settings-section-heading">
+              <h3>Background catalog checks</h3>
+            </div>
+            <div class="settings-grid">
+              <label class="settings-checkbox">
+                <span>Followed catalog sync</span>
+                <span class="checkbox-row"><input id="setting-automatic-sync" name="automatic_sync_enabled" type="checkbox" /> <span>Periodically check followed catalogs</span></span>
+                <small>Checks all followed authors, series and standalone books. The manual Sync button still forces a check.</small>
+              </label>
+              <label id="setting-sync-interval-label">
+                <span>Followed catalog interval <em>(hours)</em></span>
+                <input id="setting-sync-interval" name="sync_interval_hours" type="number" min="1" max="720" step="1" required />
+                <small>Used when followed catalog sync is enabled. The default is every 24 hours.</small>
+              </label>
+              <label id="setting-favourites-sync-label" class="settings-dependent-setting settings-checkbox">
+                <span>Favorited catalog sync</span>
+                <span class="checkbox-row"><input id="setting-favourites-sync" name="favourites_sync_enabled" type="checkbox" /> <span>Periodically check favorited catalogs</span></span>
+                <small>Only becomes active when followed catalog sync is off; it then checks the smaller favorited scope.</small>
+              </label>
+              <label id="setting-favourites-sync-interval-label" class="settings-dependent-setting">
+                <span>Favorited catalog interval <em>(hours)</em></span>
+                <input id="setting-favourites-sync-interval" name="favourites_sync_interval_hours" type="number" min="1" max="720" step="1" required />
+                <small>Used when favorited catalog sync is active. The default is every 24 hours.</small>
+              </label>
+            </div>
+            <div class="settings-actions">
+              <button id="settings-scheduled-sync" class="button button-secondary" type="button">Run scheduled sync now</button>
+            </div>
+            <p class="settings-sync-status">Both sync buttons and automatic checks fetch fresh catalog listings, including releases from the past 30 days, while reusing cached book details. They check the active scope (followed or favorited catalogs). If background sync is off, the buttons check followed catalogs.</p>
+            <p id="settings-sync-status" class="settings-sync-status" role="status" aria-live="polite">Checking sync schedule…</p>
+          </section>
+
+          <section id="settings-panel-users" class="settings-section" role="tabpanel" aria-labelledby="settings-tab-users" data-settings-panel="users" hidden>
+            <div class="settings-section-heading">
+              <h3>Your account</h3>
+            </div>
+            <div class="settings-grid">
+              <label>
+                <span>Username</span>
+                <input id="setting-auth-username" name="auth_username" type="text" minlength="1" maxlength="160" autocomplete="username" required />
+                <small>Change the login name for this account.</small>
+              </label>
+              <label>
+                <span>New password</span>
+                <div class="password-field">
+                  <input id="setting-auth-password" minlength="12" maxlength="256" name="auth_password" type="password" minlength="1" maxlength="256" autocomplete="new-password" />
+                  <button id="setting-auth-password-toggle" class="button button-secondary password-toggle" type="button" aria-pressed="false">Show</button>
+                </div>
+                <small>Leave blank to keep the current password.</small>
+              </label>
+              <label>
+                <span>Confirm new password</span>
+                <input id="setting-auth-password-confirm" minlength="12" maxlength="256" type="password" minlength="1" maxlength="256" autocomplete="new-password" />
+                <small>Enter the new password again to catch typing mistakes.</small>
+              </label>
+            </div>
+            <p id="settings-auth-warning" class="settings-auth-warning" role="status" aria-live="polite"></p>
+            <div class="user-session-actions">
+              <p id="settings-user-summary" class="settings-sync-status"></p>
+              <button id="session-signout" class="button button-secondary" type="button">Sign out</button>
+            </div>
+            <section id="user-management" class="user-management" hidden>
+              <div class="settings-section-heading">
+                <h3>Manage users</h3>
+              </div>
+              <p class="settings-sync-status">The initial account is the only administrator. Additional users get separate watchlists, catalog caches, settings and databases.</p>
+              <div id="user-list" class="user-list"></div>
+              <div class="user-create-grid">
+                <label>
+                  <span>New username</span>
+                  <input id="new-user-username" type="text" minlength="1" maxlength="160" autocomplete="off" />
+                </label>
+                <label>
+                  <span>Password</span>
+                  <input id="new-user-password" minlength="12" maxlength="256" type="password" minlength="1" maxlength="256" autocomplete="new-password" />
+                </label>
+                <button id="new-user-submit" class="button button-primary" type="button">Add user</button>
+              </div>
+              <p id="user-management-message" class="settings-message" role="status" aria-live="polite"></p>
+            </section>
+          </section>
+
+          <section id="settings-panel-database" class="settings-section" role="tabpanel" aria-labelledby="settings-tab-database" data-settings-panel="database" hidden>
+            <div class="settings-section-heading">
+              <h3>Move this installation</h3>
+            </div>
+            <div class="settings-transfer">
+              <section class="settings-transfer-card">
+                <h4>Export</h4>
+                <p>Export your selected region’s library, account settings and cached artwork.</p>
+                <button id="database-export" class="button button-secondary" type="button">Export archive</button>
+              </section>
+              <section class="settings-transfer-card">
+                <h4>Import</h4>
+                <p>Choose an archive for your selected region.</p>
+                <label class="database-file-label">
+                  <span>Archive to import</span>
+                  <input id="setting-database-file" type="file" accept=".zip,application/zip" />
+                </label>
+                <button id="database-import" class="button button-secondary" type="button" disabled>Import archive</button>
+              </section>
+            </div>
+            <p class="settings-auth-warning">Import replaces this region’s library and covers, and restores account settings. Other regions and your login remain unchanged.</p>
+          </section>
+
+          <section id="settings-panel-cache" class="settings-section" role="tabpanel" aria-labelledby="settings-tab-cache" data-settings-panel="cache" hidden>
+            <div class="settings-section-heading">
+              <h3>How often cached data may be refreshed</h3>
+            </div>
+            <div class="settings-grid cache-grid">
+              <label><span>Detail view cache <em>(minutes)</em></span><input id="setting-detail-minutes" name="cache_detail_minutes" type="number" min="1" max="1440" step="1" required /><small>How long the browser reuses author, series and book details before checking the server. Server freshness follows the catalog and product settings below.</small></label>
+              <label><span>Search results <em>(minutes)</em></span><input id="setting-search-minutes" name="cache_search_minutes" type="number" min="1" max="1440" step="1" required /><small>Applies to repeated searches with the same query.</small></label>
+              <label><span>Author catalog <em>(hours)</em></span><input id="setting-author-hours" name="cache_author_hours" type="number" min="1" max="720" step="1" required /><small>How often author pages are checked for new releases.</small></label>
+              <label><span>Series catalog <em>(hours)</em></span><input id="setting-series-hours" name="cache_series_hours" type="number" min="1" max="720" step="1" required /><small>How often series membership and volumes are refreshed.</small></label>
+              <label><span>Upcoming products <em>(hours)</em></span><input id="setting-upcoming-hours" name="cache_upcoming_hours" type="number" min="1" max="720" step="1" required /><small>Used for releases within the next 30 days.</small></label>
+              <label><span>Further-future products <em>(hours)</em></span><input id="setting-far-future-hours" name="cache_far_future_hours" type="number" min="1" max="720" step="1" required /><small>Used for releases more than 30 days away.</small></label>
+              <label><span>Released products <em>(days)</em></span><input id="setting-released-days" name="cache_released_days" type="number" min="1" max="99999" step="1" required /><small>Released metadata is normally stable, so it is checked less often.</small></label>
+            </div>
+            <fieldset id="settings-storage-policy" class="settings-storage-policy" hidden disabled>
+              <legend>Automatic cleanup · administrator</legend>
+              <p>These settings apply to all accounts and libraries. Automatic cleanup is on by default. Refreshing cached data is controlled separately above.</p>
+              <dl class="settings-storage-usage" aria-label="Current cache sizes">
+                <div><dt>Cached responses</dt><dd id="settings-response-cache-current">Loading…</dd></div>
+                <div><dt>Cover images</dt><dd id="settings-artwork-cache-current">Loading…</dd></div>
+              </dl>
+              <p id="settings-storage-usage-note" class="settings-storage-usage-note" aria-live="polite">Totals across all accounts and libraries. Response size counts cached payloads and keys; image size sums stored cover files.</p>
+              <div class="settings-grid cache-grid">
+                <label class="settings-checkbox">
+                  <span>Automatic cleanup</span>
+                  <span class="checkbox-row"><input id="setting-cleanup-enabled" type="checkbox" /> <span>Enable automatic deletion</span></span>
+                  <small>When enabled, cleanup runs while idle, about every six hours. Only the limits below trigger deletion.</small>
+                </label>
+                <label><span>Keep cached responses <em>(days)</em></span><input id="setting-cache-retention-days" type="number" min="1" max="99999" step="1" required /><small>Default: 28 days. Older responses are deleted when automatic cleanup is enabled.</small></label>
+                <label class="settings-checkbox"><span>Image expiry by age</span><span class="checkbox-row"><input id="setting-artwork-expiry-enabled" type="checkbox" /> <span>Delete images older than their retention period</span></span><small>Off by default. When enabled, older images are deleted by automatic cleanup. The artwork size limit still applies during cleanup.</small></label>
+                <label><span>Keep cached images <em>(days)</em></span><input id="setting-artwork-retention-days" type="number" min="1" max="99999" step="1" required /><small>Default: 99999 days, measured since the image was saved. Applies only when image expiry and automatic cleanup are enabled, including imported covers.</small></label>
+                <label><span>Response cache size limit <em>(MiB per database)</em></span><input id="setting-response-cache-mb" type="number" min="0" max="1048576" step="1" required /><small>0 means no size limit. A positive limit deletes older responses first when cleanup is enabled.</small></label>
+                <label><span>Artwork size limit <em>(MiB across all libraries)</em></span><input id="setting-artwork-cache-mb" type="number" min="0" max="1048576" step="1" required /><small>0 means no size limit. A positive limit deletes older cached covers first when cleanup is enabled, including imported covers.</small></label>
+                <label><span>Pre-import backups to keep <em>(per region)</em></span><input id="setting-backup-keep" type="number" min="0" max="99999" step="1" required /><small>0 keeps all backups. With cleanup enabled, a positive number deletes older pre-import database and artwork backups. Migration backups are always kept.</small></label>
+              </div>
+              <p>Clear cache deletes only the selected cache types. Check <strong>Automatic cleanup</strong> to delete cached Audible/Audnexus responses and detail snapshots. Check <strong>Image expiry by age</strong> to delete cover images for all accounts and libraries, including imported covers. Check both boxes to delete both. Books, follows, favorites, settings, accounts and backups are kept; deleted imported covers may require the original export to restore.</p>
+              <button id="settings-clear-cache" class="button button-secondary" type="button" disabled>Clear cache</button>
+              <p id="settings-clear-cache-message" role="status" aria-live="polite"></p>
+            </fieldset>
+          </section>
+
+          <div class="settings-footer">
+            <div class="settings-actions">
+              <button id="settings-reset" class="button button-secondary" type="button">Reset to defaults</button>
+              <button class="button button-primary" type="submit">Save settings</button>
+            </div>
+            <p id="settings-message" class="settings-message" role="status" aria-live="polite"></p>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div id="author-reviews-modal" class="modal-backdrop" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="author-reviews-title">
+        <button id="author-reviews-close" class="modal-close" type="button" aria-label="Close author reviews"><span aria-hidden="true">×</span></button>
+        <h2 id="author-reviews-title">Review author matches</h2>
+        <p class="muted">Reviews cover authors you follow and authors credited on books or series you follow. Cached credits may be incomplete, and shared books can belong to co-authors. Close this window to decide later.</p>
+        <div id="author-reviews-content"></div>
+        <p id="author-reviews-message" class="settings-message" role="status" aria-live="polite"></p>
+      </section>
+    </div>
+
+    <div id="author-split-modal" class="modal-backdrop" hidden>
+      <section class="modal author-split-modal" role="dialog" aria-modal="true" aria-labelledby="author-split-title">
+        <button id="author-split-close" class="modal-close" type="button" aria-label="Cancel split"><span aria-hidden="true">×</span></button>
+        <div id="author-split-content"></div>
+        <div class="modal-actions author-split-actions">
+          <button id="author-split-cancel" class="button button-secondary" type="button">Cancel</button>
+          <button id="author-split-confirm" class="button button-primary" type="button">Split selected identities</button>
+        </div>
+        <p id="author-split-message" class="settings-message" role="status" aria-live="polite"></p>
+      </section>
+    </div>
+
+    <div id="calendar-day-modal" class="modal-backdrop" hidden>
+      <section class="modal calendar-day-modal" role="dialog" aria-modal="true" aria-labelledby="calendar-day-modal-title">
+        <button id="calendar-day-modal-close" class="modal-close" type="button" aria-label="Close day releases"><span aria-hidden="true">×</span></button>
+        <div id="calendar-day-modal-content"></div>
+      </section>
+    </div>
+
+   <div id="details-modal" class="modal-backdrop" hidden>
+     <section class="modal" role="dialog" aria-modal="true" aria-labelledby="details-modal-title">
+       <button id="details-modal-close" class="modal-close" type="button" aria-label="Close details"><span aria-hidden="true">×</span></button>
+       <div id="details-modal-content"></div>
+     </section>
+   </div>
+    <div id="follow-authors-modal" class="modal-backdrop" hidden>
+      <section class="modal follow-authors-modal" role="dialog" aria-modal="true" aria-labelledby="follow-authors-modal-title">
+        <button id="follow-authors-close" class="modal-close" type="button" aria-label="Cancel follow"><span aria-hidden="true">×</span></button>
+        <div id="follow-authors-content"></div>
+        <div class="modal-actions follow-authors-actions">
+          <button id="follow-authors-cancel" class="button button-secondary" type="button">Follow book only</button>
+          <button id="follow-authors-confirm" class="button button-primary" type="button">Follow book</button>
+        </div>
+      </section>
+    </div>
+    <div id="author-unfollow-modal" class="modal-backdrop" hidden>
+      <section class="modal author-unfollow-modal" role="dialog" aria-modal="true" aria-labelledby="author-unfollow-modal-title">
+        <button id="author-unfollow-close" class="modal-close" type="button" aria-label="Cancel unfollow author"><span aria-hidden="true">×</span></button>
+        <div id="author-unfollow-content"></div>
+        <div class="modal-actions author-unfollow-actions">
+          <button id="author-unfollow-cancel" class="button button-secondary" type="button">Cancel</button>
+          <button id="author-unfollow-confirm" class="button button-secondary follow-button is-following" type="button">Unfollow author</button>
+        </div>
+        <p id="author-unfollow-message" class="settings-message" role="status" aria-live="polite"></p>
+      </section>
+    </div>
+    <div id="item-unfollow-modal" class="modal-backdrop" hidden>
+      <section class="modal item-unfollow-modal" role="dialog" aria-modal="true" aria-labelledby="item-unfollow-modal-title">
+        <button id="item-unfollow-close" class="modal-close" type="button" aria-label="Cancel unfollow"><span aria-hidden="true">×</span></button>
+        <div id="item-unfollow-content"></div>
+        <div class="modal-actions item-unfollow-actions">
+          <button id="item-unfollow-cancel" class="button button-secondary" type="button">Cancel</button>
+          <button id="item-unfollow-confirm" class="button button-secondary follow-button is-following" type="button">Unfollow</button>
+        </div>
+        <p id="item-unfollow-message" class="settings-message" role="status" aria-live="polite"></p>
+      </section>
+    </div>
+    <div id="auth-gate" class="auth-gate" hidden>
+      <section class="auth-card" role="dialog" aria-modal="true" aria-labelledby="login-title">
+        <h1 id="login-title">Sign in to AudibleCalendar</h1>
+        <form id="login-form" class="auth-form">
+          <label>
+            <span>Username</span>
+            <input id="login-username" type="text" autocomplete="username" required />
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="login-password" type="password" autocomplete="current-password" required />
+          </label>
+          <button id="login-submit" class="button button-primary" type="submit">Sign in</button>
+          <p id="login-message" class="auth-message" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/static/app.js?v=20261010-2"></script>
+  </body>
+</html>

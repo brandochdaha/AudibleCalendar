@@ -1,0 +1,9 @@
+*
+!requirements.lock
+!LICENSE
+!app/
+!app/**
+!static/
+!static/**
+!assets/
+!assets/**
