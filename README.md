@@ -18,6 +18,11 @@ to its account and HTTP image responses use private revalidation.
 
 ![AudibleCalendar calendar view](Screenshot.png)
 
+**Update note:** This update adds a first-run setup wizard, more flexible sync
+schedules, release notifications through email, ntfy, and Gotify, and a check
+for new GitHub releases. Automated tests passed, but life got in the way of more
+extensive real-world testing.
+
 ## Installation
 
 Download or clone this repository, then open a terminal in its directory. Choose
