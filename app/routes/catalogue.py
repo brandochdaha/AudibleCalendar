@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 from fastapi import HTTPException, Query, Request
 from fastapi.responses import FileResponse
@@ -12,7 +12,9 @@ from ..category_catalog import DEFAULT_CATEGORY_ID, category_by_id, category_opt
 from ..image_cache import ImageCacheError, is_allowed_image_url
 from ..repository import calendar, set_author_favourite, set_book_favourite, set_series_favourite, stop_following, sync_state, unfollow_item, unfollow_preview
 from ..repository.watchlist import watchlist
-from ..sync_runtime import read_sync_runtime
+from ..sync_runtime import parse_runtime_datetime, read_sync_runtime
+from ..sync_schedule import next_digest_at
+from ..notification_store import load_preferences
 from ..repository.presentation import summaries
 from ..input_validation import release_date
 from ..api_context import _workspace
@@ -336,10 +338,29 @@ async def scheduled_style_sync(request: Request) -> dict[str, Any]:
 def sync_status(request: Request) -> dict[str, Any]:
     workspace = _workspace(request)
     runtime = read_sync_runtime(workspace.database)
-    scheduled_at = workspace.next_scheduled_sync_at
-    if workspace.automatic_sync_scope() and scheduled_at is None and not workspace.sync_service.sync_in_progress:
-        scheduled_at = workspace.automatic_sync_due_at()
+    scheduled_completions = runtime.pop("scheduled_completions")
+    plan = workspace.automatic_sync_plan()
+    scope, _, _ = plan
+    scheduled_at = workspace.automatic_sync_due_at(plan=plan) if scope else None
+    with workspace.user_store.transaction() as connection:
+        notifications, enabled = load_preferences(connection, workspace.user.id)
+    now = datetime.now(timezone.utc)
+    digest_at = None
+    if notifications.enabled and enabled and notifications.mode == "digest":
+        if notifications.after_sync:
+            if scope and scheduled_completions:
+                completed = parse_runtime_datetime(scheduled_completions[-1]["at"])
+                if completed is not None:
+                    due = completed + timedelta(minutes=notifications.delay_minutes)
+                    digest_at = due if due > now else None
+        else:
+            digest_at = next_digest_at(
+                now, workspace.settings.time_zone, notifications.time,
+                weekday=notifications.weekday if notifications.cadence == "weekly" else None,
+            )
+    release_checker = getattr(request.app.state, "release_checker", None)
     return {
+        "available_update": release_checker.available_update() if release_checker else None,
         "items": sync_state(workspace.database),
         "scheduler_error": (request.app.state.workspace_manager.scheduler_errors.get(workspace.user.id)
                             or request.app.state.workspace_manager.scheduler_error),
@@ -350,6 +371,7 @@ def sync_status(request: Request) -> dict[str, Any]:
         "source_metric_breakdown": workspace.sync_service.source_metric_breakdown(),
         "automatic_sync_enabled": workspace.settings.automatic_sync_enabled,
         "favourites_sync_enabled": workspace.settings.favourites_sync_enabled,
-        "automatic_sync_scope": workspace.automatic_sync_scope(),
+        "automatic_sync_scope": scope,
+        "next_digest_at": digest_at.isoformat() if digest_at else None,
         "next_scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
     }

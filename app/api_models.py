@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from .input_validation import validate_catalogue_dates
+from .notification_settings import NotificationSettings
 from .storage_policy import StoragePolicy
 from .time_zone import validate_time_zone
 
@@ -81,6 +82,7 @@ class AuthorSeriesRequest(CatalogueRequest):
 
 
 class SettingsUpdate(BaseModel):
+    notifications: NotificationSettings | None = None
     storage_policy: StoragePolicy | None = None
     region: Literal["us", "uk", "ca", "au", "de", "fr", "es", "it", "jp", "in", "br"] | None = None
     english_only: bool | None = None
@@ -94,6 +96,9 @@ class SettingsUpdate(BaseModel):
     sync_interval_hours: float | None = Field(default=None, ge=1, le=720)
     favourites_sync_enabled: bool | None = None
     favourites_sync_interval_hours: float | None = Field(default=None, ge=1, le=720)
+    sync_cadence: Literal["interval", "daily", "weekly"] | None = None
+    sync_time: str | None = Field(default=None, pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+    sync_weekday: int | None = Field(default=None, ge=0, le=6)
     date_display: Literal["uk", "us", "iso"] | None = None
     time_zone: str | None = Field(default=None, min_length=1, max_length=255)
     default_release_scope: Literal["followed", "favourites"] | None = None

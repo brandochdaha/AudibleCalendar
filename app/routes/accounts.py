@@ -23,6 +23,8 @@ def auth_session(request: Request) -> JSONResponse:
     }
     if user:
         payload.update(user.summary())
+    initial_admin = user_store.get(1)
+    payload["setup_required"] = bool(initial_admin and initial_admin.password_is_default)
     return JSONResponse(
         payload,
         headers={"Cache-Control": "no-store"},

@@ -21,6 +21,8 @@ from .config import Settings
 from .users import UserStore
 from .workspaces import WorkspaceManager
 from .scheduler import scheduled_sync
+from .notification_scheduler import scheduled_notifications
+from .update_check import ReleaseChecker
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -38,15 +40,16 @@ sync_schedule_changed = asyncio.Event()
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     task = asyncio.create_task(scheduled_sync(workspace_manager, sync_schedule_changed))
+    notifications_task = asyncio.create_task(scheduled_notifications(workspace_manager))
+    updates_task = asyncio.create_task(_app.state.release_checker.run())
     _app.state.scheduler_task = task
     try:
         yield
     finally:
         task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        notifications_task.cancel()
+        updates_task.cancel()
+        await asyncio.gather(task, notifications_task, updates_task, return_exceptions=True)
         sync_tasks = [workspace.sync_service._sync_task for workspace in workspace_manager._workspaces.values()
                       if workspace.sync_service._sync_task is not None]
         for sync_task in sync_tasks:
@@ -75,15 +78,23 @@ async def require_authentication(request: Request, call_next):
     if path.startswith("/api/") and path not in PUBLIC_API_PATHS:
         if workspace_manager.maintaining:
             return JSONResponse(status_code=503, content={"detail": "Storage maintenance is running; retry shortly"}, headers={"Retry-After": "5"})
-        user = await run_in_threadpool(user_store.session_user, request.cookies.get(AUTH_COOKIE))
+        if path == "/api/auth/setup":
+            user = await run_in_threadpool(user_store.get, 1)
+            if user is None or not user.password_is_default:
+                return JSONResponse(
+                    status_code=409, content={"detail": "Setup has already been completed. Reload to sign in."},
+                    headers={"Cache-Control": "no-store"},
+                )
+        else:
+            user = await run_in_threadpool(user_store.session_user, request.cookies.get(AUTH_COOKIE))
         if user is None:
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Authentication required"},
                 headers={"Cache-Control": "no-store"},
             )
-        if user.password_is_default and path not in {"/api/settings", "/api/config"}:
-            return JSONResponse(status_code=403, content={"detail": "Change your initial password in Settings to finish account setup", "code": "setup_required"}, headers={"Cache-Control": "no-store"})
+        if user.password_is_default and path not in {"/api/settings", "/api/config", "/api/auth/setup"}:
+            return JSONResponse(status_code=403, content={"detail": "Finish first-run setup to use the catalogue", "code": "setup_required"}, headers={"Cache-Control": "no-store"})
         workspace = await run_in_threadpool(workspace_manager.get, user)
         workspace = workspace_manager.current(user.id) or workspace
         if workspace_manager.maintaining:
@@ -149,5 +160,6 @@ app.state.login_throttle = LoginThrottle()
 app.state.workspace_manager = workspace_manager
 app.state.settings_defaults = settings_defaults
 app.state.sync_schedule_changed = sync_schedule_changed
+app.state.release_checker = ReleaseChecker(user_store)
 
 app.add_middleware(HttpSecurity)

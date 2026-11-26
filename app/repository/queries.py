@@ -292,11 +292,13 @@ def calendar(
     descending: bool = False,
     favourites_only: bool = False,
     today: date | None = None,
+    consolidate: bool = True,
 ) -> list[dict[str, Any]]:
     # The normal calendar is an upcoming-release view; the optional history
     # mode is deliberately limited to rows already cached in the local DB.
     effective_start = start[:10] if include_past else max(start[:10], (today or date.today()).isoformat())
-    consolidate_authors(db)
+    if consolidate:
+        consolidate_authors(db)
     with db.transaction() as connection:
         rows = connection.execute(
             f"""

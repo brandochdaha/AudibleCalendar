@@ -7,13 +7,14 @@ import secrets
 AUTH_COOKIE = "audiblecalendar_session"
 PASSWORD_ITERATIONS = 600_000
 DEFAULT_USERNAME = "admin"
-DEFAULT_PASSWORD = "admin"
-MIN_PASSWORD_LENGTH = 12
+MIN_PASSWORD_LENGTH = 3
 
 
 def validate_new_password(password: str) -> None:
-    if not MIN_PASSWORD_LENGTH <= len(password) <= 256 or password == DEFAULT_PASSWORD:
-        raise ValueError("Choose a password between 12 and 256 characters")
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise ValueError("Password must be at least 3 characters")
+    if len(password) > 256:
+        raise ValueError("Password must be at most 256 characters")
 
 
 def set_session_cookie(response, request, token: str) -> None:

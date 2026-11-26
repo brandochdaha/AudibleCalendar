@@ -45,7 +45,7 @@ export function createSyncController({
     const scheduledButton = $("#settings-scheduled-sync");
     if (scheduledButton) {
       scheduledButton.disabled = syncing;
-      scheduledButton.textContent = syncing ? "Syncing…" : "Run scheduled sync now";
+      scheduledButton.textContent = syncing ? "Syncing…" : "Sync now";
     }
   }
 
@@ -162,6 +162,17 @@ export function createSyncController({
 
   function renderSyncStatus(status = state.syncStatus) {
     renderHeaderSyncSummary(status);
+    const updateBadge = $("#update-badge");
+    if (updateBadge) {
+      const release = status?.available_update;
+      updateBadge.hidden = !release;
+      if (release) {
+        updateBadge.href = release.url;
+        updateBadge.textContent = `Update available · ${release.version}`;
+      } else {
+        updateBadge.removeAttribute("href");
+      }
+    }
     const message = $("#settings-sync-status");
     if (message) {
       if (!status) {
@@ -189,10 +200,23 @@ export function createSyncController({
         } else if (status.next_scheduled_at && !status.in_progress) {
           parts.push(`Next automatic sync ${prettyDateTime(status.next_scheduled_at)}.`);
         }
+        const trigger = {
+          digest: "daily digest", automatic_followed: "automatic followed sync",
+          automatic_favourites: "automatic favorited sync", manual: "manual sync",
+        }[status.last_trigger];
+        if (trigger) parts.push(`${status.in_progress ? "Started" : "Last sync started"} by ${trigger}.`);
+        if (status.next_digest_at) parts.push(`Next digest ${prettyDateTime(status.next_digest_at)}.`);
         const lastMetrics = syncMetricsSummary(status.last_metrics, { includeZeroRequests: true });
         if (lastMetrics && !status.in_progress) parts.push(`Last run: ${lastMetrics}.`);
         message.textContent = parts.join(" ");
       }
+    }
+    const digestStatus = $("#settings-digest-status");
+    if (digestStatus) {
+      digestStatus.textContent = [
+        status?.next_digest_at && `Next digest ${prettyDateTime(status.next_digest_at)}.`,
+        status?.next_scheduled_at && `Next automatic sync ${prettyDateTime(status.next_scheduled_at)}.`,
+      ].filter(Boolean).join(" ");
     }
     if (!state.manualSyncInProgress) updateSyncButton(Boolean(status?.in_progress));
     if (status?.in_progress) $("#sync-button").title = syncProgressText(status);

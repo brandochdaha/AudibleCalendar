@@ -18,6 +18,7 @@ from .sync import SyncService
 from .sync_runtime import next_automatic_sync_at, read_sync_runtime
 from .users import UserRecord, UserStore
 from .storage_policy import load_storage_policy
+from .sync_schedule import next_clock_sync
 
 
 @dataclass
@@ -27,18 +28,26 @@ class Workspace:
     settings: Settings
     sync_service: SyncService
     image_cache: ImageCache
+    user_store: UserStore
     next_scheduled_sync_at: datetime | None = None
     active_requests: int = 0
     importing: bool = False
     changing_settings: bool = False
     _schedule_key: tuple | None = field(default=None, repr=False)
 
-    def automatic_sync_due_at(self, now: datetime | None = None) -> datetime | None:
+    def automatic_sync_due_at(self, now: datetime | None = None, *, plan=None) -> datetime | None:
         runtime = read_sync_runtime(self.database)
-        scope = self.automatic_sync_scope()
+        scope, cadence, clock = plan or self.automatic_sync_plan()
         if scope is None:
             self.next_scheduled_sync_at = None
             return None
+        if cadence != "interval":
+            self._schedule_key = None
+            self.next_scheduled_sync_at = next_clock_sync(
+                now or datetime.now(timezone.utc), self.settings.time_zone, clock, runtime,
+                weekday=self.settings.sync_weekday if cadence == "weekly" else None,
+            )
+            return self.next_scheduled_sync_at
         interval_hours = (
             self.settings.sync_interval_hours
             if scope == "followed"
@@ -59,11 +68,16 @@ class Workspace:
         return self.next_scheduled_sync_at
 
     def automatic_sync_scope(self) -> str | None:
+        return self.automatic_sync_plan()[0]
+
+    def automatic_sync_plan(self):
         if self.settings.automatic_sync_enabled:
-            return "followed"
-        if self.settings.favourites_sync_enabled:
-            return "favourites"
-        return None
+            scope = "followed"
+        elif self.settings.favourites_sync_enabled:
+            scope = "favourites"
+        else:
+            scope = None
+        return scope, self.settings.sync_cadence, self.settings.sync_time
 
 
 class WorkspaceManager:
@@ -113,6 +127,7 @@ class WorkspaceManager:
         settings = replace(self.base_settings, database_path=database.path, **values)
         return Workspace(
             user=user,
+            user_store=self.user_store,
             database=database,
             settings=settings,
             sync_service=SyncService(database, settings, source_cache=self.source_cache, http_pool=self.http_pool),

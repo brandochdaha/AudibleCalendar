@@ -74,6 +74,10 @@ For example, to listen on all interfaces on port 8000, use
 `.\scripts\run-windows.ps1 -BindAddress 0.0.0.0 -Port 8000` and put the
 installation behind HTTPS before making it reachable outside the machine.
 
+The Windows installer checks the Python launcher and commands on PATH for a
+supported version. If Python is installed elsewhere, specify it explicitly, for
+example: `./scripts/install-windows.ps1 -PythonCommand "C:\Python313\python.exe"`.
+
 The Windows installer uses `requirements.windows.lock`, which omits the Linux
 and macOS-only `uvloop` package. The application itself is the same on all
 three platforms; Windows does not require WSL2. If you prefer WSL2, use the
@@ -141,16 +145,21 @@ docker compose up -d
 
 ## First use
 
-For both native and Docker installations, log in with username **`admin`** and
-password **`admin`**. On first login, the app requires you to set a new password
-in **Settings → Users** before you can use the catalog or administrative features.
-The new password must contain 12–256 characters. Existing accounts keep their
-passwords; accounts still using `admin` must change it before continuing.
+On a new installation, open AudibleCalendar to start the setup wizard.
+The wizard asks you to create the admin username and password, then confirm your
+Audible marketplace and time zone. The default marketplace is the United States.
+Each marketplace has its own watchlist. The final step lets you review the sync
+schedule and configure notifications, or skip straight to the calendar.
+New installs default to a daily sync at 8:45 a.m. and a notification send time of
+9:00 a.m. in the selected time zone. Notifications are off until you enable a
+destination. If your time zone differs from your Audible marketplace’s, some
+release notifications may arrive a day later.
+
+Existing accounts keep their credentials, region and schedule. Installations
+with an unfinished admin setup open the wizard directly.
 The initial account is the only administrator and can add regular
 accounts in Settings → Users. It cannot be disabled or demoted. On upgrade,
 existing secondary administrators become regular users and must sign in again.
-Choose your Audible region in Settings before following anything.
-
 Search for an author, series, or book and follow the results you want to track.
 Following an author includes their series and standalone books. Books within a
 series are tracked through that series; standalone books can be followed
@@ -187,8 +196,9 @@ transfer between regions. A new region starts empty; returning to a previous
 region restores its library. Only the selected region syncs automatically.
 Login and general settings stay with your account.
 
-Automatic sync is enabled by default and runs every 24 hours. Both scheduled
-and manual sync request fresh catalog discovery pages, including releases from
+Automatic sync is enabled by default. The first-run wizard sets a daily morning
+check, and existing installations keep their saved cadence. Both scheduled and
+manual sync request fresh catalog discovery pages, including releases from
 the past 30 days to catch late listings, while reusing cached product metadata.
 Discovery remains bounded by pagination limits; incomplete checks are reported.
 Opening author/series details also saves discovered books and reloads the local
@@ -204,8 +214,8 @@ cooldown after upstream failures. Cached data remains available during a cooldow
 [.env.example](.env.example) lists native-install environment options. Saved
 in-app settings take precedence over environment defaults. Native Python loads
 `.env` through Uvicorn's `--env-file` support. The standalone Docker Compose
-file uses fixed defaults and does not pass `.env` into the container; change
-app preferences in Settings.
+file uses fixed defaults for app preferences. It passes the notification
+endpoint allowlist through explicitly.
 
 Common native-install options:
 
@@ -220,6 +230,39 @@ documented in `.env.example`.
 
 Docker always stores its databases under `/data` inside the container. Keep data
 on local storage rather than a network filesystem.
+
+## Release notifications
+
+In **Settings → Notifications**, enable email (SMTP), ntfy or Gotify, then save
+and use the test button for each destination. Choose a local send time, a daily
+digest or one message per book. Releases from the active regional calendar
+qualify starting on the day you enable the destination, including books already
+on the calendar. Books added after a digest go into the next day's digest with
+a note. With separate messages, late additions go out once the app sees them.
+
+In **Settings → Sync**, choose an interval, a daily time, or a weekly day and
+time. Clock schedules use the account time zone. **Use separate schedules**
+keeps that sync cadence and sends notifications independently.
+Choose one notification per book, a daily digest, or a weekly digest on the
+day and time you choose. **Send digest after scheduled sync** sends a digest
+15, 30, or 60 minutes after each scheduled sync ends, including when it fails.
+If the sync fails, releases already on the calendar are labelled as scheduled.
+With automatic sync off, linked delivery waits until you turn it back on
+or choose separate schedules.
+
+By default, notices use the scheduled release date. If you turn off **Presume
+scheduled books are released**, the app waits until the catalogue reports the
+book as available and no longer on preorder. Catalogue refreshes determine
+when that information reaches the app. Weekly and linked digests include
+unsent releases, including late discoveries. Each destination retries delivery independently. Long ntfy
+digests include the full list as an attachment. Set the optional AudibleCalendar
+address to include a link.
+
+The administrator can use private notification servers. To let regular accounts
+use additional servers, set `AUDIBLE_NOTIFICATION_ENDPOINTS` to a comma-separated
+list of approved HTTP(S) base URLs and SMTP `host:port` pairs. The default list
+allows `https://ntfy.sh`. Notification credentials and delivery history stay
+in the account database and are excluded from regional library exports.
 
 ## Running as a service
 
@@ -240,6 +283,10 @@ or trusted private subnet so forwarded scheme and client addresses are handled
 correctly. Avoid `*` on an exposed application port.
 
 ## Updating and backups
+
+AudibleCalendar checks GitHub Releases once a day. **Update available** links to
+the release notes when a newer stable version is published. Settings shows
+your installed version. Follow the steps below to install the update manually.
 
 Before updating, stop the app and copy the **whole data directory**. It contains
 accounts, user databases, shared caches, artwork, and backups. A single database
@@ -273,9 +320,10 @@ If the app cannot write to its database, check the data directory's ownership
 and permissions. For Docker, check `docker compose logs --tail=100`; for a native
 service, check its service logs. `/api/health` is a process liveness check. `/api/ready` returns 503 when the
 scheduler is unavailable or a user's scheduled workspace checks are failing.
-Settings → Sync shows errors for the current account. Failed/partial syncs retry
-after five minutes; cached fallback data does not advance the last-successful
-check time. Overlapping manual and scheduled sync requests share one run.
+Settings → Sync shows errors for the current account. Failed or partial interval
+checks retry after five minutes. Daily and weekly checks wait for their next
+scheduled slot. Cached fallback data does not advance the last successful check
+time. Overlapping manual and scheduled sync requests share one run.
 Discovery that reaches its page limit is reported as incomplete.
 
 ## Storage and privacy

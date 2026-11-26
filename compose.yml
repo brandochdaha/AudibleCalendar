@@ -7,5 +7,7 @@ services:
       - ALL
     ports:
       - "127.0.0.1:8000:8000"
+    environment:
+      AUDIBLE_NOTIFICATION_ENDPOINTS: "${AUDIBLE_NOTIFICATION_ENDPOINTS-https://ntfy.sh}"
     volumes:
       - "./.data:/data"

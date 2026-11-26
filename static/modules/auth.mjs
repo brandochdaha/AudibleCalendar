@@ -36,7 +36,7 @@ export function createAuthController({ onAuthenticated, onSignedOut }) {
   async function checkSession() {
     try {
       const session = await api("/api/auth/session");
-      if (session.authenticated) await startAuthenticatedApp(session);
+      if (session.authenticated || session.setup_required) await startAuthenticatedApp(session);
       else showLogin();
     } catch (error) {
       showLogin(error.message);

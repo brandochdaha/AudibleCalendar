@@ -25,6 +25,10 @@ def _empty_state() -> dict[str, Any]:
         "last_status": None,
         "last_error": None,
         "last_metrics": None,
+        "last_trigger": None,
+        "last_scheduled_slot": None,
+        "last_followed_success_at": None,
+        "scheduled_completions": [],
     }
 
 
@@ -72,12 +76,15 @@ def _write_sync_runtime(connection: Any, state: dict[str, Any]) -> None:
     )
 
 
-def mark_sync_started(db: Database, *, at: datetime | None = None) -> dict[str, Any]:
+def mark_sync_started(db: Database, *, at: datetime | None = None, trigger="manual", slot=None) -> dict[str, Any]:
     with db.transaction() as connection:
         state = _read_sync_runtime(connection)
         state["last_started_at"] = (at or _now()).astimezone(timezone.utc).isoformat()
         state["last_status"] = "running"
         state["last_error"] = None
+        state["last_trigger"] = trigger
+        if slot is not None:
+            state["last_scheduled_slot"] = slot.isoformat()
         _write_sync_runtime(connection, state)
     return state
 
@@ -89,6 +96,7 @@ def mark_sync_completed(
     error: str | None = None,
     metrics: dict[str, int] | None = None,
     at: datetime | None = None,
+    scope: str | None = None,
 ) -> dict[str, Any]:
     """Record a completed attempt and advance the browser-visible revision."""
 
@@ -100,8 +108,14 @@ def mark_sync_completed(
         state["last_error"] = error
         state["last_metrics"] = dict(metrics) if metrics is not None else None
         state["catalogue_revision"] = int(state["catalogue_revision"]) + 1
+        if state["last_trigger"] in {"automatic_followed", "automatic_favourites"}:
+            state["scheduled_completions"] = [
+                *state["scheduled_completions"][-255:], {"at": completed_at, "status": status},
+            ]
         if status == "ok":
             state["last_success_at"] = completed_at
+            if scope == "followed":
+                state["last_followed_success_at"] = completed_at
         _write_sync_runtime(connection, state)
     return state
 

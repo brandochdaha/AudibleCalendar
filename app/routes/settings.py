@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 from typing import Any
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from fastapi import HTTPException, Request, Response
+from .. import __version__
 from ..api_models import ClearCacheRequest, SettingsUpdate
 from ..category_catalog import category_by_id, category_options
 from ..auth import set_session_cookie
@@ -14,8 +17,30 @@ from ..storage_policy import StoragePolicy, save_storage_policy
 from ..storage import measure_cache_usage
 from ..cache_management import clear_cache
 from ..api_context import _workspace, _user, _require_admin
+from ..notification_store import load_preferences, public_preferences, save_preferences
+from ..notification_settings import Channel
+from ..notification_delivery import DeliveryError, deliver
 
 router = APIRouter()
+
+
+@router.post("/api/settings/notifications/{channel}/test")
+async def test_notification(channel: Channel, request: Request):
+    user = _user(request)
+    store = request.app.state.user_store
+
+    def load():
+        with store.transaction() as connection:
+            return load_preferences(connection, user.id)[0]
+
+    settings = await run_in_threadpool(load)
+    if not getattr(settings, channel).enabled:
+        raise HTTPException(status_code=400, detail="Enable and save this destination before testing.")
+    try:
+        await deliver(channel, settings, admin=user.is_admin)
+    except DeliveryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return {"status": "ok"}
 
 
 @router.post("/api/cache/clear")
@@ -41,28 +66,20 @@ async def clear_cached_data(request: Request, selection: ClearCacheRequest) -> d
         manager.maintaining = False
 
 
-@router.get("/api/settings")
-def get_settings(request: Request) -> dict[str, Any]:
-    settings_defaults = request.app.state.settings_defaults
+@router.get("/api/auth/setup")
+def setup_settings(request: Request) -> dict[str, Any]:
     workspace = _workspace(request)
     user = _user(request)
     user_settings = workspace.settings
+    first_install = request.app.state.user_store.browser_time_zone_pending(user)
     return {
-        "values": values_from_settings(user_settings),
-        "browser_time_zone_pending": (
-            user_settings.detect_browser_time_zone
-            and request.app.state.user_store.browser_time_zone_pending(user)
-        ),
-        "defaults": settings_defaults,
+        "values": {"region": user_settings.region, "time_zone": user_settings.time_zone},
+        "first_install_setup": first_install,
+        "browser_time_zone_pending": user_settings.detect_browser_time_zone and first_install,
         "auth": {
             "username": user.username,
             "password_is_default": user.password_is_default,
         },
-        "user": user.summary(),
-        "storage": request.app.state.workspace_manager.storage_status if user.is_admin else None,
-        "storage_usage": measure_cache_usage(request.app.state.workspace_manager) if user.is_admin else None,
-        "storage_policy": request.app.state.workspace_manager.storage_policy.model_dump() if user.is_admin else None,
-        "storage_defaults": StoragePolicy().model_dump() if user.is_admin else None,
         "region_options": [
             {"value": "us", "label": "United States (audible.com)"},
             {"value": "uk", "label": "United Kingdom (audible.co.uk)"},
@@ -102,6 +119,35 @@ def get_settings(request: Request) -> dict[str, Any]:
     }
 
 
+@router.get("/api/settings")
+def get_settings(request: Request) -> dict[str, Any]:
+    user = _user(request)
+    manager = request.app.state.workspace_manager
+    return {
+        **setup_settings(request),
+        "installed_version": __version__,
+        "values": values_from_settings(_workspace(request).settings),
+        "notifications": public_preferences(request.app.state.user_store, user.id),
+        "defaults": request.app.state.settings_defaults,
+        "user": user.summary(),
+        "storage": manager.storage_status if user.is_admin else None,
+        "storage_usage": measure_cache_usage(manager) if user.is_admin else None,
+        "storage_policy": manager.storage_policy.model_dump() if user.is_admin else None,
+        "storage_defaults": StoragePolicy().model_dump() if user.is_admin else None,
+    }
+
+
+@router.put("/api/auth/setup")
+async def complete_setup(request: SettingsUpdate, http_request: Request, response: Response) -> dict[str, Any]:
+    if not _user(http_request).password_is_default:
+        raise HTTPException(status_code=409, detail="Setup has already been completed. Reload to sign in.")
+    setup = SettingsUpdate(
+        auth_username=request.auth_username, auth_password=request.auth_password,
+        region=request.region, time_zone=request.time_zone,
+    )
+    return await update_settings(setup, http_request, response)
+
+
 @router.put("/api/settings")
 async def update_settings(request: SettingsUpdate, http_request: Request, response: Response) -> dict[str, Any]:
     user_store = http_request.app.state.user_store
@@ -113,6 +159,7 @@ async def update_settings(request: SettingsUpdate, http_request: Request, respon
     user_settings = workspace.settings
     values = request.model_dump(exclude_none=True)
     values.pop("storage_policy", None)
+    values.pop("notifications", None)
     storage_policy = request.storage_policy
     if storage_policy is not None and not user.is_admin:
         raise HTTPException(status_code=403, detail="Only the administrator can change cleanup settings")
@@ -124,9 +171,12 @@ async def update_settings(request: SettingsUpdate, http_request: Request, respon
     if requested_region and requested_region != user_settings.region and (workspace.sync_service.sync_in_progress or workspace.active_requests > 1):
         raise HTTPException(status_code=409, detail="Wait for current catalog requests to finish before saving settings")
     credentials_changed = (auth_username is not None and auth_username.strip() != user.username) or auth_password is not None
+    if user.password_is_default and (not auth_password or "region" not in values or "time_zone" not in values):
+        raise HTTPException(status_code=400, detail="Choose a new password and confirm the Audible marketplace and time zone")
+    if user_store.browser_time_zone_pending(user):
+        values.setdefault("sync_cadence", "daily")
+        values.setdefault("sync_time", "08:45")
     next_values = {**values_from_settings(user_settings), **values}
-    if user.password_is_default and not auth_password:
-        raise HTTPException(status_code=400, detail="Choose a new password to finish account setup")
 
     def persist():
         updated_user = user
@@ -134,9 +184,16 @@ async def update_settings(request: SettingsUpdate, http_request: Request, respon
                           if next_values["region"] != user_settings.region else workspace)
         with user_store.transaction() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            if user.password_is_default and not connection.execute(
+                "SELECT password_is_default FROM users WHERE id = ?", (user.id,)
+            ).fetchone()[0]:
+                raise ValueError("First-run setup has already been completed. Sign in again.")
             if credentials_changed:
                 updated_user = user_store.update(user.id, username=auth_username, password=auth_password, connection=connection)
             save_user_settings(user_store, user.id, values, connection=connection)
+            if request.notifications is not None:
+                today = datetime.now(ZoneInfo(next_values["time_zone"])).date()
+                save_preferences(connection, user, request.notifications, today)
             if storage_policy is not None:
                 save_storage_policy(connection, storage_policy)
         token = user_store.issue_session(updated_user.id) if credentials_changed else None
@@ -161,6 +218,7 @@ async def update_settings(request: SettingsUpdate, http_request: Request, respon
     return {
         "status": "ok",
         "values": values_from_settings(user_settings),
+        "notifications": await run_in_threadpool(public_preferences, user_store, user.id),
         "defaults": settings_defaults,
         "auth": {
             "username": updated_user.username,

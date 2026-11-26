@@ -54,6 +54,9 @@ class Settings:
     sync_interval_hours: float
     favourites_sync_enabled: bool
     favourites_sync_interval_hours: float
+    sync_cadence: str
+    sync_time: str
+    sync_weekday: int
     date_display: str
     time_zone: str
     default_release_scope: str
@@ -94,6 +97,9 @@ class Settings:
             sync_interval_hours=max(1.0, float(os.getenv("AUDIBLE_SYNC_INTERVAL_HOURS", "24"))),
             favourites_sync_enabled=_bool(os.getenv("AUDIBLE_FAVOURITES_SYNC_ENABLED"), False),
             favourites_sync_interval_hours=max(1.0, float(os.getenv("AUDIBLE_FAVOURITES_SYNC_INTERVAL_HOURS", "24"))),
+            sync_cadence="interval",
+            sync_time="08:45",
+            sync_weekday=0,
             date_display=_choice(os.getenv("AUDIBLE_DATE_DISPLAY"), "us", {"uk", "us", "iso"}),
             time_zone=_time_zone_choice(os.getenv("AUDIBLE_TIME_ZONE"), "America/Los_Angeles", {
                 "America/Los_Angeles", "America/Denver", "America/Chicago", "America/New_York",

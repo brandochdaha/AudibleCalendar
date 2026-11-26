@@ -5,6 +5,7 @@ import { api, invalidateRequests } from "./api.mjs?v=20260922-2";
 import { closeModal, openModal } from "./modal-accessibility.mjs?v=20260922-2";
 import { populateStorageSettings, readStorageSettings, bindClearCache } from "./storage-settings.mjs?v=20260923-4";
 import { timeZoneSettings } from "./time-zone.mjs?v=20261010-2";
+import { bindNotificationSettings } from "./notification-settings.mjs?v=20261118-13";
 
 
 export function createSettingsController({
@@ -28,10 +29,11 @@ export function createSettingsController({
     header_sync_dates_visible: "setting-header-sync-dates",
     header_sync_date_style: "setting-header-sync-date-style",
     close_settings_on_save: "setting-close-settings-on-save",
-    automatic_sync_enabled: "setting-automatic-sync",
     sync_interval_hours: "setting-sync-interval",
-    favourites_sync_enabled: "setting-favourites-sync",
     favourites_sync_interval_hours: "setting-favourites-sync-interval",
+    sync_cadence: "setting-sync-cadence",
+    sync_time: "setting-sync-time",
+    sync_weekday: "setting-sync-weekday",
     date_display: "setting-date-display",
     time_zone: "setting-time-zone",
     default_release_scope: "setting-default-release-scope",
@@ -51,7 +53,10 @@ export function createSettingsController({
     username: "setting-auth-username",
     password: "setting-auth-password",
   };
-  const settingsTabs = new Set(["catalogue", "authors", "app", "category", "sync", "users", "database", "cache"]);
+  const settingsTabs = new Set(["catalogue", "authors", "app", "category", "sync", "notifications", "users", "database", "cache"]);
+  const syncScopeInputs = [...document.querySelectorAll('input[name="sync-scope"]')];
+  const syncScope = () => syncScopeInputs.find((input) => input.checked)?.value;
+  const notifications = bindNotificationSettings(api, updateSettingsDependencies);
   let activeSettingsTab = "catalogue";
 
   function selectSettingsTab(tabName) {
@@ -71,26 +76,50 @@ export function createSettingsController({
   function updateSettingsDependencies() {
     const automaticSync = $("#setting-automatic-sync");
     const syncInterval = $("#setting-sync-interval");
-    const favouritesSync = $("#setting-favourites-sync");
     const favouritesInterval = $("#setting-favourites-sync-interval");
-    const favouritesSyncLabel = $("#setting-favourites-sync-label");
     const favouritesIntervalLabel = $("#setting-favourites-sync-interval-label");
     const fixedWindow = $("#setting-default-category-window")?.value === "fixed";
     const categoryDays = $("#setting-default-category-days");
     const categoryDaysLabel = $("#setting-default-category-days-label");
-    const followedSyncEnabled = Boolean(automaticSync?.checked);
-    const favouritesSyncDisabled = followedSyncEnabled;
-    if (syncInterval) syncInterval.disabled = !followedSyncEnabled;
-    if (favouritesSync) favouritesSync.disabled = favouritesSyncDisabled;
-    if (favouritesInterval) favouritesInterval.disabled = favouritesSyncDisabled || !favouritesSync?.checked;
-    if (favouritesSyncLabel) {
-      favouritesSyncLabel.classList.toggle("is-disabled", favouritesSyncDisabled);
-      favouritesSyncLabel.setAttribute("aria-disabled", String(favouritesSyncDisabled));
+    const cadence = $("#setting-sync-cadence");
+    const cadenceValue = cadence?.value || "interval";
+    const scheduleActive = Boolean(automaticSync?.checked);
+    const favourites = syncScope() === "favourites";
+    const conflict = !scheduleActive && notifications?.needsAutomaticSync();
+    for (const id of ["sync-notification-warning", "notification-sync-warning"]) {
+      const warning = $(`#${id}`);
+      if (warning) warning.hidden = !conflict;
     }
-    if (favouritesIntervalLabel) {
-      const disabled = favouritesSyncDisabled || !favouritesSync?.checked;
-      favouritesIntervalLabel.classList.toggle("is-disabled", disabled);
-      favouritesIntervalLabel.setAttribute("aria-disabled", String(disabled));
+    const syncOptions = $("#settings-sync-options");
+    if (syncOptions) syncOptions.disabled = !scheduleActive;
+    for (const [id, show] of [["sync-time", cadenceValue !== "interval"], ["sync-weekday", cadenceValue === "weekly"]]) {
+      const label = $(`#setting-${id}-label`);
+      const input = $(`#setting-${id}`);
+      if (label) label.hidden = !show;
+      if (input) input.disabled = !show;
+    }
+    const intervalLabel = $("#setting-sync-interval-label");
+    if (intervalLabel) intervalLabel.hidden = cadenceValue !== "interval" || favourites;
+    if (syncInterval) syncInterval.disabled = cadenceValue !== "interval" || favourites;
+    if (favouritesIntervalLabel) favouritesIntervalLabel.hidden = cadenceValue !== "interval" || !favourites;
+    if (favouritesInterval) favouritesInterval.disabled = cadenceValue !== "interval" || !favourites;
+    const timeZone = $("#setting-time-zone")?.selectedOptions?.[0]?.textContent;
+    const zoneHint = timeZone ? `Time zone: ${timeZone}` : "Uses your account time zone.";
+    const syncZone = $("#settings-sync-zone");
+    if (syncZone) {
+      syncZone.hidden = cadenceValue === "interval";
+      syncZone.textContent = zoneHint;
+    }
+    const notificationZone = $("#settings-notification-zone");
+    if (notificationZone) notificationZone.textContent = zoneHint;
+    const summary = $("#notification-sync-cadence");
+    if (summary) {
+      const interval = favourites ? favouritesInterval?.value : syncInterval?.value;
+      const time = $("#setting-sync-time")?.value;
+      const day = $("#setting-sync-weekday")?.selectedOptions?.[0]?.textContent;
+      const timeLabel = timeZone ? `${time} (${timeZone})` : time;
+      summary.textContent = !scheduleActive ? "" : cadenceValue === "interval" ? `Sync runs every ${interval} hours.`
+        : cadenceValue === "weekly" ? `Sync starts on ${day} at ${timeLabel}.` : `Sync starts daily at ${timeLabel}.`;
     }
     if (categoryDays) categoryDays.disabled = !fixedWindow;
     if (categoryDaysLabel) {
@@ -205,8 +234,20 @@ export function createSettingsController({
   }
 
   function populateSettingsForm(payload, applyState = true) {
+    const installedVersion = $("#settings-installed-version");
+    if (installedVersion && payload.installed_version) {
+      installedVersion.textContent = `Installed version ${payload.installed_version}`;
+      installedVersion.hidden = false;
+    }
+    notifications?.populate(payload.notifications);
     populateStorageSettings(payload.storage_policy, payload.storage_usage);
     const { values, timeZoneOptions } = timeZoneSettings(payload);
+    const automatic = $("#setting-automatic-sync");
+    if (automatic && values.automatic_sync_enabled !== undefined) {
+      automatic.checked = values.automatic_sync_enabled || values.favourites_sync_enabled;
+      const scope = !values.automatic_sync_enabled && values.favourites_sync_enabled ? "favourites" : "followed";
+      for (const input of syncScopeInputs) input.checked = input.value === scope;
+    }
     const region = $("#setting-region");
     if (region && payload.region_options) {
       region.innerHTML = payload.region_options.map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join("");
@@ -237,7 +278,7 @@ export function createSettingsController({
       const warning = $("#settings-auth-warning");
       if (warning) {
         warning.textContent = payload.auth.password_is_default
-          ? "Choose a new password of at least 12 characters to finish account setup."
+          ? "Choose a password to finish account setup."
           : "Leave the password blank to keep the current password.";
         warning.classList.toggle("is-warning", Boolean(payload.auth.password_is_default));
       }
@@ -387,16 +428,28 @@ export function createSettingsController({
 
   async function saveSettings(event) {
     event.preventDefault();
-    const payload = { storage_policy: readStorageSettings() };
+    const payload = { storage_policy: readStorageSettings(), notifications: notifications?.read() };
+    const automatic = $("#setting-automatic-sync");
+    const scope = syncScope();
+    if (automatic && scope) {
+      payload.automatic_sync_enabled = automatic.checked && scope === "followed";
+      payload.favourites_sync_enabled = automatic.checked && scope === "favourites";
+    }
     Object.entries(settingInputIds).forEach(([key, id]) => {
       const input = $(`#${id}`);
       if (!input) return;
-      payload[key] = input.type === "checkbox" ? input.checked : (input.type === "number" ? Number(input.value) : input.value);
+      if (key === "sync_time" && !input.value && input.matches(":disabled")) return;
+      payload[key] = input.type === "checkbox" ? input.checked : (input.type === "number" || key === "sync_weekday" ? Number(input.value) : input.value);
     });
     const username = $("#setting-auth-username");
     const password = $("#setting-auth-password");
     const confirmation = $("#setting-auth-password-confirm");
     const message = $("#settings-message");
+    if (password?.value && Array.from(password.value).length < 3) {
+      message.textContent = "Password must be at least 3 characters.";
+      password.focus();
+      return;
+    }
     if ((password?.value || confirmation?.value) && password?.value !== confirmation?.value) {
       message.textContent = "The new passwords do not match.";
       confirmation?.focus();

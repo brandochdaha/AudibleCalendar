@@ -17,6 +17,7 @@ async def sync_due_workspaces(manager, *, now=None):
     next_due = None
     users = await run_in_threadpool(manager.user_store.list, include_inactive=False)
     for user in users:
+        current = now or datetime.now(timezone.utc)
         if manager.maintaining:
             return next_due
         if user.password_is_default:
@@ -29,17 +30,21 @@ async def sync_due_workspaces(manager, *, now=None):
             workspace = await run_in_threadpool(manager.get, user)
             if manager.maintaining or workspace.importing or workspace.changing_settings or workspace.sync_service.sync_in_progress:
                 continue
-            due = await run_in_threadpool(workspace.automatic_sync_due_at, current)
+            plan = await run_in_threadpool(workspace.automatic_sync_plan)
+            due = await run_in_threadpool(workspace.automatic_sync_due_at, current, plan=plan)
             # Admission must be rechecked after the threadpool yield.
             if (manager.maintaining or manager.current(user.id) is not workspace or workspace.importing
                     or workspace.changing_settings or workspace.sync_service.sync_in_progress):
                 continue
             if due is not None and due <= current:
-                try:
-                    result = await workspace.sync_service.sync_all(scope=workspace.automatic_sync_scope())
-                    logger.info("scheduled sync finished for user %s: %s", user.id, result.get("status"))
-                finally:
-                    workspace.next_scheduled_sync_at = None
+                if workspace.automatic_sync_plan() != plan:
+                    continue
+                scope, cadence, _ = plan
+                trigger = f"automatic_{scope}"
+                workspace.sync_service.start_sync(
+                    scope=scope, trigger=trigger, slot=due if cadence != "interval" else None,
+                )
+                workspace.next_scheduled_sync_at = None
             elif due is not None:
                 next_due = min(next_due or due, due)
             manager.scheduler_errors.pop(user.id, None)

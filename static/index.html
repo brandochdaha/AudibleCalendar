@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#111827" />
     <link rel="icon" type="image/png" href="/assets/icon.png" />
     <title>AudibleCalendar</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260923-3" />
+    <link rel="stylesheet" href="/static/app.css?v=20261118-13" />
   </head>
   <body>
     <header class="topbar">
@@ -20,6 +20,7 @@
         <button class="button search-submit" type="submit">Find</button>
       </form>
       <div class="header-actions">
+        <a id="update-badge" class="status-pill" target="_blank" rel="noopener noreferrer" hidden>Update available</a>
         <button id="author-reviews-button" class="button button-secondary" type="button" hidden>Review author matches</button>
         <div id="header-sync-summary" class="header-sync-summary" aria-live="polite" hidden>
           <span id="header-last-sync"></span>
@@ -122,6 +123,7 @@
         <div class="settings-heading">
           <div>
             <h2 id="settings-modal-title">Application Settings</h2>
+            <p id="settings-installed-version" class="settings-installed-version" hidden></p>
           </div>
         </div>
         <form id="settings-form" class="settings-form">
@@ -131,6 +133,7 @@
             <button id="settings-tab-app" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-app" data-settings-tab="app" tabindex="-1">App</button>
             <button id="settings-tab-category" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-category" data-settings-tab="category" tabindex="-1">Category</button>
             <button id="settings-tab-sync" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-sync" data-settings-tab="sync" tabindex="-1">Sync</button>
+            <button id="settings-tab-notifications" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-notifications" data-settings-tab="notifications" tabindex="-1">Notifications</button>
             <button id="settings-tab-users" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-users" data-settings-tab="users" tabindex="-1">Users</button>
             <button id="settings-tab-database" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-database" data-settings-tab="database" tabindex="-1">Database</button>
             <button id="settings-tab-cache" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-cache" data-settings-tab="cache" tabindex="-1">Cache</button>
@@ -261,37 +264,179 @@
             </div>
           </section>
 
-          <section id="settings-panel-sync" class="settings-section" role="tabpanel" aria-labelledby="settings-tab-sync" data-settings-panel="sync" hidden>
-            <div class="settings-section-heading">
-              <h3>Background catalog checks</h3>
+          <section id="settings-panel-sync" class="settings-section settings-feature-panel" role="tabpanel" aria-labelledby="settings-tab-sync" data-settings-panel="sync" hidden>
+            <div class="settings-feature-row">
+              <div><h3 id="automatic-sync-heading">Automatic sync</h3><p class="settings-feature-help">Keep your calendar up to date with new Audible releases.</p></div>
+              <label class="settings-switch"><input id="setting-automatic-sync" type="checkbox" role="switch" aria-labelledby="automatic-sync-heading" /><span aria-hidden="true"></span></label>
             </div>
-            <div class="settings-grid">
-              <label class="settings-checkbox">
-                <span>Followed catalog sync</span>
-                <span class="checkbox-row"><input id="setting-automatic-sync" name="automatic_sync_enabled" type="checkbox" /> <span>Periodically check followed catalogs</span></span>
-                <small>Checks all followed authors, series and standalone books. The manual Sync button still forces a check.</small>
-              </label>
-              <label id="setting-sync-interval-label">
-                <span>Followed catalog interval <em>(hours)</em></span>
-                <input id="setting-sync-interval" name="sync_interval_hours" type="number" min="1" max="720" step="1" required />
-                <small>Used when followed catalog sync is enabled. The default is every 24 hours.</small>
-              </label>
-              <label id="setting-favourites-sync-label" class="settings-dependent-setting settings-checkbox">
-                <span>Favorited catalog sync</span>
-                <span class="checkbox-row"><input id="setting-favourites-sync" name="favourites_sync_enabled" type="checkbox" /> <span>Periodically check favorited catalogs</span></span>
-                <small>Only becomes active when followed catalog sync is off; it then checks the smaller favorited scope.</small>
-              </label>
-              <label id="setting-favourites-sync-interval-label" class="settings-dependent-setting">
-                <span>Favorited catalog interval <em>(hours)</em></span>
-                <input id="setting-favourites-sync-interval" name="favourites_sync_interval_hours" type="number" min="1" max="720" step="1" required />
-                <small>Used when favorited catalog sync is active. The default is every 24 hours.</small>
-              </label>
+            <p id="sync-notification-warning" class="settings-schedule-warning" role="status" hidden>Notifications are set to send after a scheduled sync. Turn automatic sync on or choose separate schedules in Notifications.</p>
+            <fieldset class="settings-feature-options" id="settings-sync-options">
+              <legend>Sync scope</legend>
+              <div class="settings-choice-picker">
+                <label><input type="radio" name="sync-scope" value="followed" checked />
+                  <span><strong>All followed titles</strong><small>Authors, series, and individual books you follow.</small></span>
+                </label>
+                <label><input type="radio" name="sync-scope" value="favourites" />
+                  <span><strong>Favorites only</strong><small>Limit sync to titles you’ve favorited.</small></span>
+                </label>
+              </div>
+              <div class="settings-feature-fields">
+                <label>Frequency
+                  <select id="setting-sync-cadence"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="interval">Every few hours</option></select>
+                </label>
+                <label id="setting-sync-weekday-label" hidden>Day
+                  <select id="setting-sync-weekday"><option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option><option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option><option value="6">Sunday</option></select>
+                </label>
+                <label id="setting-sync-time-label" hidden>Start time
+                  <input id="setting-sync-time" type="time" value="08:45" required aria-describedby="settings-sync-zone" />
+                </label>
+                <label id="setting-sync-interval-label" hidden>Hours between syncs
+                  <input id="setting-sync-interval" name="sync_interval_hours" type="number" min="1" max="720" step="1" required />
+                </label>
+                <label id="setting-favourites-sync-interval-label" hidden>Hours between syncs
+                  <input id="setting-favourites-sync-interval" name="favourites_sync_interval_hours" type="number" min="1" max="720" step="1" required />
+                </label>
+              </div>
+              <p class="settings-feature-help" id="settings-sync-zone" hidden></p>
+            </fieldset>
+            <section class="settings-feature-divider" aria-labelledby="manual-sync-heading">
+              <div class="settings-feature-row">
+                <div><h3 id="manual-sync-heading">Manual sync</h3><p class="settings-feature-help">Refresh the calendar now.</p></div>
+                <button id="settings-scheduled-sync" class="button button-secondary" type="button">Sync now</button>
+              </div>
+              <p id="settings-sync-status" class="settings-feature-help" role="status">Loading sync schedule…</p>
+            </section>
+          </section>
+
+          <section id="settings-panel-notifications" class="settings-section settings-feature-panel" role="tabpanel" aria-labelledby="settings-tab-notifications" data-settings-panel="notifications" hidden>
+            <div class="settings-feature-row">
+              <div><h3 id="release-notifications-heading">Release notifications</h3><p class="settings-feature-help">Choose when and where to hear about new releases.</p></div>
+              <label class="settings-switch"><input type="checkbox" data-notification="enabled" role="switch" aria-labelledby="release-notifications-heading" /><span aria-hidden="true"></span></label>
             </div>
-            <div class="settings-actions">
-              <button id="settings-scheduled-sync" class="button button-secondary" type="button">Run scheduled sync now</button>
-            </div>
-            <p class="settings-sync-status">Both sync buttons and automatic checks fetch fresh catalog listings, including releases from the past 30 days, while reusing cached book details. They check the active scope (followed or favorited catalogs). If background sync is off, the buttons check followed catalogs.</p>
-            <p id="settings-sync-status" class="settings-sync-status" role="status" aria-live="polite">Checking sync schedule…</p>
+            <p id="notification-sync-warning" class="settings-schedule-warning" role="status" hidden>Automatic sync is off. Turn it on in Sync or choose separate schedules to send notifications.</p>
+            <fieldset class="settings-feature-options" id="notification-options">
+              <legend>Delivery schedule</legend>
+              <div class="settings-choice-picker">
+                <label><input type="radio" name="notification-schedule-link" value="independent" checked />
+                  <span><strong>Use separate schedules</strong><small>Send per book or choose a digest schedule.</small></span>
+                </label>
+                <label><input type="radio" name="notification-schedule-link" value="after_sync" />
+                  <span><strong>Send digest after scheduled sync</strong><small>Use the schedule you set in Sync.</small></span>
+                </label>
+              </div>
+              <div class="settings-feature-fields">
+                <label data-notification-format-field>Delivery format
+                  <select data-notification-format><option value="per_book">One notification per book</option><option value="daily">Daily digest</option><option value="weekly">Weekly digest</option></select>
+                </label>
+                <label data-digest-weekday hidden>Day
+                  <select data-notification="weekday"><option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option><option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option><option value="6">Sunday</option></select>
+                </label>
+                <label data-digest-time>Send time
+                  <input type="time" data-notification="time" value="09:00" required aria-describedby="settings-notification-zone" />
+                </label>
+                <label data-sync-delay hidden>Wait after sync ends
+                  <select data-notification="delay_minutes" aria-describedby="notification-sync-cadence"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option></select>
+                </label>
+              </div>
+              <p id="settings-notification-zone" class="settings-feature-help"></p>
+              <p id="notification-sync-cadence" class="settings-feature-help" hidden></p>
+              <p id="settings-digest-status" class="settings-feature-help" hidden></p>
+              <label class="checkbox-row settings-release-availability"><input type="checkbox" data-notification="presume_released" checked /> Include unconfirmed releases</label>
+            </fieldset>
+            <section class="settings-feature-divider" aria-labelledby="notification-services-heading">
+              <h3 id="notification-services-heading">Notification services</h3>
+              <p id="notification-service-needed" class="settings-feature-help" role="status" hidden>Enable a service below to receive notifications.</p>
+              <p class="settings-feature-help" data-notification-save-reminder hidden>Save changes before sending a test notification.</p>
+              <div class="notification-service-list">
+              <div class="notification-service">
+                <div class="settings-feature-row notification-service-header">
+                  <div><strong id="notification-email-heading">Email</strong><small data-service-state="email"></small></div>
+                  <button class="button button-secondary" type="button" data-notification-configure aria-expanded="false" aria-controls="notification-email-editor" aria-labelledby="notification-email-action notification-email-heading"><span id="notification-email-action">Configure</span></button>
+                </div>
+                <div id="notification-email-editor" class="notification-service-editor" aria-labelledby="notification-email-heading" role="group" hidden>
+                  <label class="checkbox-row"><input type="checkbox" data-notification="email.enabled" /> Enable Email</label>
+                  <p class="settings-feature-help">Supply your own SMTP mail server.</p>
+                  <h4>Mail server</h4>
+                  <div class="settings-feature-fields">
+                    <label>Host <input type="text" data-notification="email.host" placeholder="smtp.example.com" /></label>
+                    <label>Port <input type="text" inputmode="numeric" data-notification="email.port" value="587" /></label>
+                    <label>Encryption
+                      <select data-notification="email.encryption"><option value="starttls">STARTTLS</option><option value="tls">TLS</option><option value="none">None</option></select>
+                    </label>
+                  </div>
+                  <h4>Server sign-in (if required)</h4>
+                  <div class="settings-feature-fields">
+                    <label>SMTP username <input type="text" data-notification="email.username" autocomplete="off" /></label>
+                    <label>SMTP password <input type="password" data-notification="email.secret" autocomplete="new-password" /></label>
+                  </div>
+                  <h4>Addresses</h4>
+                  <div class="settings-feature-fields">
+                    <label>From address <input type="text" inputmode="email" data-notification="email.sender" /></label>
+                    <label>To address <input type="text" inputmode="email" data-notification="email.recipient" /></label>
+                  </div>
+                  <label class="checkbox-row" hidden><input type="checkbox" data-notification-clear="email" /> Clear stored password</label>
+                  <label class="notification-calendar-link">AudibleCalendar link (optional)
+                    <input type="text" inputmode="url" data-calendar-link placeholder="https://calendar.example.com" aria-describedby="notification-email-link-help" />
+                    <small id="notification-email-link-help">Shared across all notification services.</small>
+                  </label>
+                  <div class="notification-test-row">
+                    <button class="button button-secondary" type="button" data-notification-test="email" disabled>Send test</button>
+                    <p class="settings-feature-help" data-notification-save-reminder hidden>Save changes before sending a test notification.</p>
+                  </div>
+                  <p class="settings-feature-help" role="status" data-notification-status="email"></p>
+                </div>
+              </div>
+              <div class="notification-service">
+                <div class="settings-feature-row notification-service-header">
+                  <div><strong id="notification-ntfy-heading">ntfy</strong><small data-service-state="ntfy"></small></div>
+                  <button class="button button-secondary" type="button" data-notification-configure aria-expanded="false" aria-controls="notification-ntfy-editor" aria-labelledby="notification-ntfy-action notification-ntfy-heading"><span id="notification-ntfy-action">Configure</span></button>
+                </div>
+                <div id="notification-ntfy-editor" class="notification-service-editor" aria-labelledby="notification-ntfy-heading" role="group" hidden>
+                  <label class="checkbox-row"><input type="checkbox" data-notification="ntfy.enabled" /> Enable ntfy</label>
+                  <p class="settings-feature-help">Use ntfy.sh or a self-hosted server.</p>
+                  <div class="settings-feature-fields">
+                    <label>Server URL <input type="text" inputmode="url" data-notification="ntfy.url" value="https://ntfy.sh" /></label>
+                    <label>Topic <input type="text" data-notification="ntfy.topic" /></label>
+                    <label>Access token (optional) <input type="password" data-notification="ntfy.secret" autocomplete="new-password" /></label>
+                  </div>
+                  <label class="checkbox-row" hidden><input type="checkbox" data-notification-clear="ntfy" /> Clear stored token</label>
+                  <label class="notification-calendar-link">AudibleCalendar link (optional)
+                    <input type="text" inputmode="url" data-calendar-link placeholder="https://calendar.example.com" aria-describedby="notification-ntfy-link-help" />
+                    <small id="notification-ntfy-link-help">Shared across all notification services.</small>
+                  </label>
+                  <div class="notification-test-row">
+                    <button class="button button-secondary" type="button" data-notification-test="ntfy" disabled>Send test</button>
+                    <p class="settings-feature-help" data-notification-save-reminder hidden>Save changes before sending a test notification.</p>
+                  </div>
+                  <p class="settings-feature-help" role="status" data-notification-status="ntfy"></p>
+                </div>
+              </div>
+              <div class="notification-service">
+                <div class="settings-feature-row notification-service-header">
+                  <div><strong id="notification-gotify-heading">Gotify</strong><small data-service-state="gotify"></small></div>
+                  <button class="button button-secondary" type="button" data-notification-configure aria-expanded="false" aria-controls="notification-gotify-editor" aria-labelledby="notification-gotify-action notification-gotify-heading"><span id="notification-gotify-action">Configure</span></button>
+                </div>
+                <div id="notification-gotify-editor" class="notification-service-editor" aria-labelledby="notification-gotify-heading" role="group" hidden>
+                  <label class="checkbox-row"><input type="checkbox" data-notification="gotify.enabled" /> Enable Gotify</label>
+                  <p class="settings-feature-help">Use the app token from your Gotify server.</p>
+                  <div class="settings-feature-fields">
+                    <label>Server URL <input type="text" inputmode="url" data-notification="gotify.url" /></label>
+                    <label>App token <input type="password" data-notification="gotify.secret" autocomplete="new-password" /></label>
+                  </div>
+                  <label class="checkbox-row" hidden><input type="checkbox" data-notification-clear="gotify" /> Clear stored token</label>
+                  <label class="notification-calendar-link">AudibleCalendar link (optional)
+                    <input type="text" inputmode="url" data-calendar-link placeholder="https://calendar.example.com" aria-describedby="notification-gotify-link-help" />
+                    <small id="notification-gotify-link-help">Shared across all notification services.</small>
+                  </label>
+                  <div class="notification-test-row">
+                    <button class="button button-secondary" type="button" data-notification-test="gotify" disabled>Send test</button>
+                    <p class="settings-feature-help" data-notification-save-reminder hidden>Save changes before sending a test notification.</p>
+                  </div>
+                  <p class="settings-feature-help" role="status" data-notification-status="gotify"></p>
+                </div>
+              </div>
+              </div>
+            </section>
           </section>
 
           <section id="settings-panel-users" class="settings-section" role="tabpanel" aria-labelledby="settings-tab-users" data-settings-panel="users" hidden>
@@ -307,14 +452,14 @@
               <label>
                 <span>New password</span>
                 <div class="password-field">
-                  <input id="setting-auth-password" minlength="12" maxlength="256" name="auth_password" type="password" minlength="1" maxlength="256" autocomplete="new-password" />
+                  <input id="setting-auth-password" maxlength="256" name="auth_password" type="password" autocomplete="new-password" />
                   <button id="setting-auth-password-toggle" class="button button-secondary password-toggle" type="button" aria-pressed="false">Show</button>
                 </div>
                 <small>Leave blank to keep the current password.</small>
               </label>
               <label>
                 <span>Confirm new password</span>
-                <input id="setting-auth-password-confirm" minlength="12" maxlength="256" type="password" minlength="1" maxlength="256" autocomplete="new-password" />
+                <input id="setting-auth-password-confirm" maxlength="256" type="password" autocomplete="new-password" />
                 <small>Enter the new password again to catch typing mistakes.</small>
               </label>
             </div>
@@ -336,7 +481,7 @@
                 </label>
                 <label>
                   <span>Password</span>
-                  <input id="new-user-password" minlength="12" maxlength="256" type="password" minlength="1" maxlength="256" autocomplete="new-password" />
+                  <input id="new-user-password" maxlength="256" type="password" autocomplete="new-password" />
                 </label>
                 <button id="new-user-submit" class="button button-primary" type="button">Add user</button>
               </div>
@@ -410,7 +555,7 @@
           <div class="settings-footer">
             <div class="settings-actions">
               <button id="settings-reset" class="button button-secondary" type="button">Reset to defaults</button>
-              <button class="button button-primary" type="submit">Save settings</button>
+              <button id="settings-save" class="button button-primary" type="submit">Save settings</button>
             </div>
             <p id="settings-message" class="settings-message" role="status" aria-live="polite"></p>
           </div>
@@ -503,7 +648,37 @@
       </section>
     </div>
 
+    <div id="setup-wizard" class="modal-backdrop auth-gate" hidden>
+      <section class="auth-card" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+        <p id="setup-progress" class="auth-intro">Step 1 of 3</p>
+        <h1 id="setup-title">Create your admin account</h1>
+        <form id="setup-credentials" class="auth-form">
+          <label>Username <input id="setup-username" autocomplete="username" maxlength="160" required /></label>
+          <label>Password <input id="setup-password" type="password" autocomplete="new-password" maxlength="256" required />
+          </label>
+          <label>Confirm password <input id="setup-password-confirm" type="password" autocomplete="new-password" required /></label>
+          <div class="setup-actions">
+            <button class="button button-primary" type="submit">Continue</button>
+          </div>
+        </form>
+        <form id="setup-marketplace" class="auth-form" hidden>
+          <label>Audible marketplace <select id="setup-region" required></select>
+            <small>Each marketplace has a separate watchlist. Choose the Audible storefront whose releases you want to follow.</small>
+          </label>
+          <label>Time zone <select id="setup-time-zone" required></select>
+            <small>Sync and notification times use this time zone.</small>
+          </label>
+          <div class="setup-actions">
+            <button id="setup-back" class="button button-secondary" type="button">Back</button>
+            <button id="setup-confirm" class="button button-primary" type="submit">Save and continue</button>
+          </div>
+        </form>
+        <form id="setup-preferences" class="auth-form" hidden></form>
+        <p id="setup-message" class="auth-message" role="status"></p>
+      </section>
+    </div>
+
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="/static/app.js?v=20261010-2"></script>
+    <script type="module" src="/static/app.js?v=20261118-13"></script>
   </body>
 </html>

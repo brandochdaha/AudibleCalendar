@@ -89,21 +89,24 @@ class CatalogueSyncMixin(CatalogueTargetsMixin):
             if isinstance(author, dict)
         )
 
-    async def sync_all(self, force: bool = False, scope: str | None = None) -> dict[str, Any]:
+    async def sync_all(self, force: bool = False, scope: str | None = None, *, trigger="manual", slot=None) -> dict[str, Any]:
+        return await asyncio.shield(self.start_sync(force, scope, trigger=trigger, slot=slot))
+
+    def start_sync(self, force=False, scope=None, *, trigger="manual", slot=None):
         if self._sync_task is None or self._sync_task.done():
-            self._sync_task = asyncio.create_task(self._run_sync(force, scope))
+            self._sync_task = asyncio.create_task(self._run_sync(force, scope, trigger=trigger, slot=slot))
             # Observe exceptions even if the HTTP caller disconnects.
             self._sync_task.add_done_callback(lambda task: None if task.cancelled() else task.exception())
-        return await asyncio.shield(self._sync_task)
+        return self._sync_task
 
-    @source_operation(lambda self, force=False, scope=None: "sync_" + (scope or self.sync_scope()))
-    async def _run_sync(self, force: bool = False, scope: str | None = None) -> dict[str, Any]:
+    @source_operation(lambda self, force=False, scope=None, **kwargs: "sync_" + (scope or self.sync_scope()))
+    async def _run_sync(self, force: bool = False, scope: str | None = None, *, trigger="manual", slot=None) -> dict[str, Any]:
         sync_scope = scope or self.sync_scope()
         if sync_scope not in {"followed", "favourites"}:
             raise ValueError("Unknown sync scope")
         async with self._sync_lock:
             self.progress.start(force, operation="sync_" + sync_scope)
-            await run_in_threadpool(mark_sync_started, self.db)
+            await run_in_threadpool(mark_sync_started, self.db, trigger=trigger, slot=slot)
             self._sync_cache = {}
             self._sync_products = {}
             self._sync_product_times = {}
@@ -128,6 +131,7 @@ class CatalogueSyncMixin(CatalogueTargetsMixin):
                     str(result.get("status") or "ok"),
                     error="\n".join(str(error) for error in errors) or None,
                     metrics=metrics,
+                    scope=sync_scope,
                 )
                 return result
             finally:

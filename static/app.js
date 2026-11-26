@@ -12,12 +12,13 @@ import { state, resetState } from "./modules/state.mjs?v=20260922-2";
 import { $, showToast, todayInTimeZone } from "./modules/format.mjs?v=20260922-2";
 
 import { api, invalidateRequests } from "./modules/api.mjs?v=20260922-2";
-import { createAuthController } from "./modules/auth.mjs?v=20260922-2";
+import { createAuthController } from "./modules/auth.mjs?v=20261118-4";
+import { createOnboarding } from "./modules/onboarding.mjs?v=20261118-11";
 import { createCalendarController } from "./modules/calendar.mjs?v=20260923-8";
 import { createCategoryController } from "./modules/category.mjs?v=20260923-5";
 import { closeAllModalLayers, closeModal, handleTablistKeydown } from "./modules/modal-accessibility.mjs?v=20260922-2";
-import { createSettingsController } from "./modules/settings.mjs?v=20261010-2";
-import { createSyncController } from "./modules/sync-ui.mjs?v=20261010-1";
+import { createSettingsController } from "./modules/settings.mjs?v=20261118-13";
+import { createSyncController } from "./modules/sync-ui.mjs?v=20261118-7";
 import { restoreCalendarPreferences, saveCalendarPreferences } from "./modules/calendar-preferences.mjs?v=20260927-2";
 
 const {
@@ -132,12 +133,20 @@ function setReleaseMode(mode) {
   else state.categoryCacheRequest += 1;
 }
 
+const onboarding = createOnboarding({
+  api,
+  onAccountSaved(payload) {
+    state.authenticated = true;
+    state.region = payload.values.region;
+    state.setupRequired = false;
+  },
+});
+
 async function boot(session) {
-  state.authenticated = true;
-  state.setupRequired = Boolean(session?.password_is_default);
+  state.authenticated = Boolean(session?.authenticated);
+  state.setupRequired = Boolean(session?.setup_required);
   if (state.setupRequired) {
-    state.region = (await api("/api/config")).region;
-    showSettingsPage("users");
+    await onboarding.start();
     return;
   }
   try {
@@ -180,7 +189,10 @@ const auth = createAuthController({
   onSignedOut() {
     invalidateRequests();
     closeAllModals();
+    if (!$("#settings-modal").hidden) closeModal("#settings-modal", { restoreFocus: false });
+    onboarding.reset();
     resetState();
+    $("#update-badge").hidden = true;
     clearUpcomingViews();
     renderWatchlist();
     renderCalendar();
@@ -250,8 +262,8 @@ $("#setting-auth-password-toggle").addEventListener("click", togglePasswordVisib
 $("#database-export").addEventListener("click", exportDatabase);
 $("#database-import").addEventListener("click", importDatabase);
 $("#setting-database-file").addEventListener("change", updateDatabaseImportState);
-$("#setting-automatic-sync").addEventListener("change", updateSettingsDependencies);
-$("#setting-favourites-sync").addEventListener("change", updateSettingsDependencies);
+$("#settings-panel-sync").addEventListener("input", updateSettingsDependencies);
+$("#setting-time-zone").addEventListener("change", updateSettingsDependencies);
 $("#setting-default-category-window").addEventListener("change", updateSettingsDependencies);
 $("#search-results-close").addEventListener("click", closeSearch);
 $("#manual-author-merge-controls").addEventListener("click", (event) => {
@@ -338,7 +350,9 @@ $("#calendar-day-modal").addEventListener("click", (event) => {
 });
 $("#details-modal-close").addEventListener("click", closeDetails);
 $("#search-results-panel").addEventListener("click", (event) => { if (event.target.id === "search-results-panel") closeAllModals(); });
-$("#settings-modal").addEventListener("click", (event) => { if (event.target.id === "settings-modal") closeAllModals(); });
+$("#settings-modal").addEventListener("click", (event) => {
+  if (event.target.id === "settings-modal") closeAllModals();
+});
 $("#follow-authors-close").addEventListener("click", () => closeBookAuthorPrompt(null));
 $("#follow-authors-cancel").addEventListener("click", () => closeBookAuthorPrompt([]));
 $("#follow-authors-confirm").addEventListener("click", confirmBookAuthorPrompt);

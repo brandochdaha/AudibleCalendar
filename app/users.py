@@ -11,7 +11,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .auth import DEFAULT_PASSWORD, DEFAULT_USERNAME, hash_password, verify_password, validate_new_password
+from .auth import DEFAULT_USERNAME, hash_password, verify_password, validate_new_password
+from .notification_store import SCHEMA as NOTIFICATION_SCHEMA
 
 
 SESSION_TTL = timedelta(days=30)
@@ -122,13 +123,7 @@ class UserStore:
                 );
                 """
             )
-            # Repair older releases that allowed the bootstrap warning to be
-            # cleared while retaining the publicly known password.
-            if connection.execute("PRAGMA user_version").fetchone()[0] < 1:
-                for row in connection.execute("SELECT id, password_hash, password_salt FROM users WHERE password_is_default = 0").fetchall():
-                    if verify_password(DEFAULT_PASSWORD, row["password_hash"], row["password_salt"]):
-                        connection.execute("UPDATE users SET password_is_default = 1 WHERE id = ?", (row["id"],))
-                connection.execute("PRAGMA user_version = 1")
+            connection.executescript(NOTIFICATION_SCHEMA)
             # The bootstrap account is the sole administrator, including for
             # installations created when secondary administrators were allowed.
             connection.execute("""
@@ -156,7 +151,7 @@ class UserStore:
             raise RuntimeError("Single-user database migration is no longer supported; use a current-format archive.")
         primary_path = self.data_root / "1" / "audiblecalendar.db"
         username = DEFAULT_USERNAME
-        password_hash, password_salt = hash_password(DEFAULT_PASSWORD)
+        password_hash, password_salt = hash_password(secrets.token_urlsafe(32))
         password_is_default = True
 
         connection = self._connect()
@@ -216,7 +211,7 @@ class UserStore:
         connection = self._connect()
         try:
             row = connection.execute(
-                "SELECT * FROM users WHERE username = ? COLLATE NOCASE AND active = 1",
+                "SELECT * FROM users WHERE username = ? COLLATE NOCASE AND active = 1 AND password_is_default = 0",
                 (username.strip(),),
             ).fetchone()
         finally:
@@ -283,11 +278,6 @@ class UserStore:
             raise ValueError("The initial administrator account cannot be disabled")
         password_hash, password_salt = (None, None)
         if password is not None:
-            if current.password_is_default:
-                with self.transaction() as check:
-                    row = check.execute("SELECT password_hash, password_salt FROM users WHERE id = ?", (user_id,)).fetchone()
-                if verify_password(password, row["password_hash"], row["password_salt"]):
-                    raise ValueError("Choose a different password to finish account setup")
             password_hash, password_salt = hash_password(password)
         assignments = ["username = ?", "role = ?", "updated_at = CURRENT_TIMESTAMP"]
         parameters: list[Any] = [clean_username, next_role]
